@@ -2,6 +2,10 @@
 name = "test-1"
 version = "0.1.0"
 description = ""
+authors = ["Your Name"]
+readme = "README.md"
+python = ">=3.10,<4.0"
+description = ""
 authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
