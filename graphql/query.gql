@@ -1,0 +1,20 @@
+query getUserRepls($username: String!, $cursor: String, $count: Int = 50) {
+    user: userByUsername(username: $username) {
+        repls: publicRepls(count: $count, after: $cursor) {
+            items {
+                slug
+                hostedUrl
+                description
+
+                config {
+                    isServer
+                }
+            }
+
+            pageInfo { 
+                hasNextPage
+                nextCursor
+            }
+        }
+    }
+}
