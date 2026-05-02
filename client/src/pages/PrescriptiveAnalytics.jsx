@@ -23,9 +23,9 @@ export default function PrescriptiveAnalytics() {
   useEffect(() => {
     if (!selectedDataset) return;
     api.get(`/datasets/${selectedDataset.id}`).then(d => {
-      const cols = Object.keys(d.schema || d.preview?.[0] || {});
+      const cols = Object.keys(d.data.schema || d.data.preview?.[0] || {});
       setColumns(cols);
-      const numCols = cols.filter(c => d.schema?.[c] === 'numeric' || c.match(/price|sales|revenue|profit|amount|count|value|score|rating|age|size/i));
+      const numCols = cols.filter(c => d.data.schema?.[c] === 'numeric' || c.match(/price|sales|revenue|profit|amount|count|value|score|rating|age|size/i));
       if (numCols[0]) setTargetCol(numCols[0]);
       setFeatureCols(numCols.slice(1, 6));
     }).catch(() => {});
@@ -36,11 +36,11 @@ export default function PrescriptiveAnalytics() {
     setLoading(true);
     try {
       const dataRes = await api.get(`/datasets/${selectedDataset.id}/summary`);
-      const rows = dataRes.preview || [];
+      const rows = dataRes.data.preview || [];
       if (!rows.length) {
         const raw = await api.get(`/datasets/${selectedDataset.id}`);
         const limit = 2000;
-        const dataRows = raw.preview || [];
+        const dataRows = raw.data.preview || [];
         const res = await fetch(`${PYTHON.replace('/api/analytics', '')}/api/analytics/${selectedDataset.id}/prescriptive`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },

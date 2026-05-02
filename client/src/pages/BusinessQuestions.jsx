@@ -36,8 +36,8 @@ export default function BusinessQuestions() {
 
   useEffect(() => {
     if (selectedDataset) {
-      api.get(`/business-questions/suggestions/${selectedDataset.id}`).then(setSuggestions).catch(() => {});
-      api.get('/business-questions').then(setHistory).catch(() => {});
+      api.get(`/business-questions/suggestions/${selectedDataset.id}`).then(r => setSuggestions(r.data)).catch(() => {});
+      api.get('/business-questions').then(r => setHistory(r.data)).catch(() => {});
     }
   }, [selectedDataset]);
 
@@ -48,7 +48,7 @@ export default function BusinessQuestions() {
     setResult(null);
     try {
       const res = await api.post('/business-questions/analyze', { question: q, dataset_id: selectedDataset.id });
-      setResult(res);
+      setResult(res.data);
       setQuestion(q);
     } catch (err) { toast.error(err.response?.data?.error || 'Analysis failed'); }
     finally { setLoading(false); }

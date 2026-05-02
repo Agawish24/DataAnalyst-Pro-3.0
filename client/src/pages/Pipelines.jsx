@@ -51,7 +51,7 @@ export default function Pipelines() {
 
   const run = async (id) => {
     setRunning(r => ({ ...r, [id]: true }));
-    try { const res = await api.post(`/pipelines/${id}/run`); toast.success(`Pipeline completed: ${res.rowsProcessed} rows processed`); loadRuns(id); } catch (err) { toast.error('Pipeline failed'); }
+    try { const res = await api.post(`/pipelines/${id}/run`); toast.success(`Pipeline completed: ${res.data.rowsProcessed} rows processed`); loadRuns(id); } catch (err) { toast.error('Pipeline failed'); }
     finally { setRunning(r => ({ ...r, [id]: false })); }
   };
 

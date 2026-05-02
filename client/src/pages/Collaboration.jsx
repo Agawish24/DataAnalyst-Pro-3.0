@@ -52,10 +52,10 @@ export default function Collaboration() {
     try {
       const c = await api.post('/collaboration/comments', { target_type: 'dataset', target_id: dsId, content, parent_id: parentId || undefined });
       if (parentId) {
-        setComments(prev => prev.map(cm => cm.id === parentId ? { ...cm, replies: [...(cm.replies || []), c] } : cm));
+        setComments(prev => prev.map(cm => cm.id === parentId ? { ...cm, replies: [...(cm.replies || []), c.data] } : cm));
         setReplyingTo(null); setReplyText('');
       } else {
-        setComments(prev => [...prev, c]);
+        setComments(prev => [...prev, c.data]);
         setNewComment('');
       }
     } catch { toast.error('Failed to post'); }

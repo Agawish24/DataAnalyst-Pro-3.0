@@ -81,7 +81,7 @@ export default function ScenarioModeling() {
       const overrides = Object.fromEntries(variables.map(v => [v.name, v.baseValue]));
       if (activeScenario) {
         const res = await api.post(`/scenarios/${activeScenario.id}/simulate`, { overrides });
-        setSimResult(res);
+        setSimResult(res.data);
       } else {
         // Quick local sim
         const sensitivity = variables.map(v => ({
@@ -102,7 +102,7 @@ export default function ScenarioModeling() {
     setRunningMC(true);
     try {
       const res = await api.post('/scenarios/monte-carlo', { variables, iterations });
-      setMcResult(res);
+      setMcResult(res.data);
       toast.success(`Monte Carlo complete: ${iterations.toLocaleString()} iterations`);
     } catch { toast.error('Monte Carlo failed'); }
     finally { setRunningMC(false); }
@@ -112,7 +112,7 @@ export default function ScenarioModeling() {
     if (!scenarioName.trim()) return toast.error('Enter a name');
     try {
       const res = await api.post('/scenarios', { name: scenarioName, variables, dataset_id: selectedDataset?.id });
-      setActiveScenario(res);
+      setActiveScenario(res.data);
       setShowSaveForm(false);
       setScenarioName('');
       load();

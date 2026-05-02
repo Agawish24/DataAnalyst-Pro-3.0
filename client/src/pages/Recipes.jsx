@@ -43,7 +43,7 @@ export default function Recipes() {
     setApplying(a => ({ ...a, [id]: true }));
     try {
       const res = await api.post(`/recipes/${id}/apply/${target}`);
-      toast.success(`Recipe applied: ${res.before} → ${res.after} rows`);
+      toast.success(`Recipe applied: ${res.data.before} → ${res.data.after} rows`);
     } catch { toast.error('Failed to apply recipe'); }
     finally { setApplying(a => ({ ...a, [id]: false })); }
   };

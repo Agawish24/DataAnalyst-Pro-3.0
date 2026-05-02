@@ -27,7 +27,7 @@ export default function Profiling() {
     setLoading(true);
     try {
       const url = refresh ? `/profiling/${selectedDataset.id}?refresh=1` : `/profiling/${selectedDataset.id}`;
-      const data = await api.get(url);
+      const data = (await api.get(url)).data;
       setProfile(data);
       if (!selectedCol && data.columns) setSelectedCol(Object.keys(data.columns)[0]);
       if (refresh) toast.success('Profile refreshed');

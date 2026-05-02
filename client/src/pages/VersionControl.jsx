@@ -52,7 +52,7 @@ export default function VersionControl() {
     if (!comparingV1 || !comparingV2) return toast.error('Select two versions to compare');
     try {
       const res = await api.get(`/versions/${selectedDataset.id}/compare/${comparingV1}/${comparingV2}`);
-      setComparison(res);
+      setComparison(res.data);
     } catch { toast.error('Comparison failed'); }
   };
 

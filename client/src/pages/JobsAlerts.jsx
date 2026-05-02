@@ -51,7 +51,7 @@ export default function JobsAlerts() {
     setRunning(r => ({ ...r, [id]: true }));
     try {
       const res = await api.post(`/jobs/${id}/run`);
-      toast.success(res.status === 'success' ? 'Job completed' : 'Job failed');
+      toast.success(res.data.status === 'success' ? 'Job completed' : 'Job failed');
       loadJobs();
     } catch { toast.error('Run failed'); }
     finally { setRunning(r => ({ ...r, [id]: false })); }
@@ -73,8 +73,8 @@ export default function JobsAlerts() {
     setChecking(true);
     try {
       const res = await api.post(`/jobs/alerts/check/${selectedDataset.id}`);
-      if (res.triggered > 0) toast.error(`${res.triggered} alert(s) triggered!`);
-      else toast.success(`${res.checked} alerts checked — none triggered`);
+      if (res.data.triggered > 0) toast.error(`${res.data.triggered} alert(s) triggered!`);
+      else toast.success(`${res.data.checked} alerts checked — none triggered`);
     } catch { toast.error('Check failed'); }
     finally { setChecking(false); }
   };

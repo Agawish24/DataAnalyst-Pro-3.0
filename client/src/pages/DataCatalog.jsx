@@ -31,9 +31,9 @@ export default function DataCatalog() {
         api.get('/catalog/tags'),
         api.get('/catalog/domains'),
       ]);
-      setEntries(data);
-      setAllTags(tags);
-      setAllDomains(domains);
+      setEntries(data.data);
+      setAllTags(tags.data);
+      setAllDomains(domains.data);
     } catch { toast.error('Failed to load catalog'); }
     finally { setLoading(false); }
   };
@@ -42,7 +42,7 @@ export default function DataCatalog() {
 
   const openEntry = async (entry) => {
     try {
-      const detail = await api.get(`/catalog/${entry.dataset_id}`);
+      const detail = (await api.get(`/catalog/${entry.dataset_id}`)).data;
       setSelected(detail);
       setEditForm({ tags: detail.tags || [], description: detail.description || '', owner: detail.owner || '', domain: detail.domain || '', sensitivity: detail.sensitivity || 'internal', lineage: detail.lineage || [], custom_metadata: detail.custom_metadata || {} });
       setEditing(false);
