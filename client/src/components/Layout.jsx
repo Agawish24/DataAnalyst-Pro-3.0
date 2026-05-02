@@ -27,6 +27,7 @@ const navGroups = [
       { path: '/catalog', icon: BookOpen, label: 'Data Catalog', labelAr: 'كتالوج البيانات' },
       { path: '/versions', icon: GitBranch, label: 'Version Control', labelAr: 'إدارة الإصدارات' },
       { path: '/connectors', icon: Plug, label: 'DB Connectors', labelAr: 'موصلات قواعد البيانات' },
+      { path: '/integrations', icon: Globe, label: 'Integrations', labelAr: 'التكاملات' },
       { path: '/masking', icon: EyeOff, label: 'Data Masking', labelAr: 'إخفاء البيانات' },
       { path: '/lineage', icon: Network, label: 'Data Lineage', labelAr: 'سلسلة البيانات' },
     ]

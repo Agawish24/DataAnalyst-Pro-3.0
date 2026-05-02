@@ -40,6 +40,9 @@ const geoRouter = require('./routes/geo');
 const pivotRouter = require('./routes/pivot');
 const tfaRouter = require('./routes/tfa');
 const pdfExportRouter = require('./routes/pdfExport');
+const kaggleRouter = require('./routes/kaggle');
+const githubRouter = require('./routes/github');
+const tableauRouter = require('./routes/tableau');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -88,6 +91,9 @@ app.use('/api/geo', geoRouter);
 app.use('/api/pivot', pivotRouter);
 app.use('/api/tfa', tfaRouter);
 app.use('/api/pdf', pdfExportRouter);
+app.use('/api/kaggle', kaggleRouter);
+app.use('/api/github', githubRouter);
+app.use('/api/tableau', tableauRouter);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '3.0.0' }));
 

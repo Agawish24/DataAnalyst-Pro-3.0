@@ -39,6 +39,7 @@ import TwoFactorAuth from './pages/TwoFactorAuth';
 import AutoML from './pages/AutoML';
 import Annotations from './pages/Annotations';
 import PDFExport from './pages/PDFExport';
+import Integrations from './pages/Integrations';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -100,6 +101,7 @@ const AppRoutes = () => {
       <Route path="/automl" element={wrap(AutoML)} />
       <Route path="/annotations" element={wrap(Annotations)} />
       <Route path="/pdf-export" element={wrap(PDFExport)} />
+      <Route path="/integrations" element={wrap(Integrations)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );
