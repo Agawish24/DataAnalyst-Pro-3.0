@@ -26,6 +26,19 @@ import BusinessQuestions from './pages/BusinessQuestions';
 import ScenarioModeling from './pages/ScenarioModeling';
 import PrescriptiveAnalytics from './pages/PrescriptiveAnalytics';
 import ExternalAPI from './pages/ExternalAPI';
+import SyntaxHelper from './pages/SyntaxHelper';
+import NLQuery from './pages/NLQuery';
+import DatabaseConnectors from './pages/DatabaseConnectors';
+import Workspaces from './pages/Workspaces';
+import DataMasking from './pages/DataMasking';
+import Webhooks from './pages/Webhooks';
+import DataLineage from './pages/DataLineage';
+import GeoMaps from './pages/GeoMaps';
+import PivotTable from './pages/PivotTable';
+import TwoFactorAuth from './pages/TwoFactorAuth';
+import AutoML from './pages/AutoML';
+import Annotations from './pages/Annotations';
+import PDFExport from './pages/PDFExport';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -74,6 +87,19 @@ const AppRoutes = () => {
       <Route path="/scenarios" element={wrap(ScenarioModeling)} />
       <Route path="/prescriptive" element={wrap(PrescriptiveAnalytics)} />
       <Route path="/external-api" element={wrap(ExternalAPI)} />
+      <Route path="/syntax-helper" element={wrap(SyntaxHelper)} />
+      <Route path="/nl-query" element={wrap(NLQuery)} />
+      <Route path="/connectors" element={wrap(DatabaseConnectors)} />
+      <Route path="/workspaces" element={wrap(Workspaces)} />
+      <Route path="/masking" element={wrap(DataMasking)} />
+      <Route path="/webhooks" element={wrap(Webhooks)} />
+      <Route path="/lineage" element={wrap(DataLineage)} />
+      <Route path="/geo" element={wrap(GeoMaps)} />
+      <Route path="/pivot" element={wrap(PivotTable)} />
+      <Route path="/2fa" element={wrap(TwoFactorAuth)} />
+      <Route path="/automl" element={wrap(AutoML)} />
+      <Route path="/annotations" element={wrap(Annotations)} />
+      <Route path="/pdf-export" element={wrap(PDFExport)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );

@@ -498,5 +498,115 @@ def root_cause():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/automl', methods=['POST'])
+def automl():
+    try:
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
+        from sklearn.linear_model import LogisticRegression, Ridge, Lasso
+        from sklearn.svm import SVC, SVR
+        from sklearn.model_selection import cross_val_score
+        from sklearn.preprocessing import LabelEncoder, StandardScaler
+
+        body = request.get_json()
+        data = body.get('data', [])
+        target_col = body.get('target_col')
+        feature_cols = body.get('feature_cols', [])
+        task_type = body.get('task_type', 'classification')
+
+        df = df_from_rows(data)
+        if target_col not in df.columns:
+            return jsonify({'error': f'Target column "{target_col}" not found'}), 400
+
+        if not feature_cols:
+            feature_cols = [c for c in df.columns if c != target_col]
+
+        df_clean = df[feature_cols + [target_col]].dropna()
+        if len(df_clean) < 20:
+            return jsonify({'error': 'Need at least 20 rows for AutoML'}), 400
+
+        X = df_clean[feature_cols].copy()
+        y = df_clean[target_col].copy()
+
+        # Encode categoricals in X
+        le_map = {}
+        for col in X.columns:
+            if X[col].dtype == object:
+                le = LabelEncoder()
+                X[col] = le.fit_transform(X[col].astype(str))
+                le_map[col] = list(le.classes_)
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        if task_type == 'classification':
+            y_enc = LabelEncoder()
+            y = y_enc.fit_transform(y.astype(str))
+            models = {
+                'Random Forest': RandomForestClassifier(n_estimators=50, random_state=42),
+                'Gradient Boosting': GradientBoostingClassifier(n_estimators=50, random_state=42),
+                'Logistic Regression': LogisticRegression(max_iter=500, random_state=42),
+                'SVM': SVC(kernel='rbf', random_state=42),
+            }
+            scoring = 'accuracy'
+        else:
+            y = pd.to_numeric(y, errors='coerce').fillna(y.mean())
+            models = {
+                'Random Forest': RandomForestRegressor(n_estimators=50, random_state=42),
+                'Gradient Boosting': GradientBoostingRegressor(n_estimators=50, random_state=42),
+                'Ridge Regression': Ridge(),
+                'Lasso Regression': Lasso(),
+            }
+            scoring = 'r2'
+
+        all_scores = {}
+        best_model = None
+        best_score = -999
+
+        for name, model in models.items():
+            try:
+                use_X = X_scaled if name in ['Logistic Regression', 'SVM', 'Ridge Regression', 'Lasso Regression'] else X
+                cv = min(5, len(df_clean) // 10)
+                if cv < 2:
+                    cv = 2
+                scores = cross_val_score(model, use_X, y, cv=cv, scoring=scoring)
+                mean_score = float(np.mean(scores))
+                all_scores[name] = round(mean_score, 4)
+                if mean_score > best_score:
+                    best_score = mean_score
+                    best_model = name
+            except Exception as e:
+                all_scores[name] = None
+
+        # Fit best model for feature importance
+        feature_importance = {}
+        best_model_obj = models.get(best_model)
+        if best_model_obj:
+            try:
+                use_X = X_scaled if best_model in ['Logistic Regression', 'SVM', 'Ridge Regression', 'Lasso Regression'] else X
+                best_model_obj.fit(use_X, y)
+                if hasattr(best_model_obj, 'feature_importances_'):
+                    fi = best_model_obj.feature_importances_
+                    feature_importance = {col: round(float(imp), 4) for col, imp in zip(feature_cols, fi)}
+                elif hasattr(best_model_obj, 'coef_'):
+                    coef = np.abs(best_model_obj.coef_).flatten() if best_model_obj.coef_.ndim > 1 else np.abs(best_model_obj.coef_)
+                    feature_importance = {col: round(float(imp), 4) for col, imp in zip(feature_cols, coef)}
+            except Exception:
+                pass
+
+        return jsonify({
+            'task_type': task_type,
+            'best_model': best_model,
+            'best_score': round(best_score, 4),
+            'metric': scoring,
+            'all_scores': all_scores,
+            'feature_importance': feature_importance,
+            'sample_size': len(df_clean),
+            'features_used': feature_cols,
+            'recommendation': f'Best model: {best_model} with {scoring}={round(best_score,3)}. {"Accuracy above 0.8 is strong." if scoring=="accuracy" else "R² above 0.7 is strong."}'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)
