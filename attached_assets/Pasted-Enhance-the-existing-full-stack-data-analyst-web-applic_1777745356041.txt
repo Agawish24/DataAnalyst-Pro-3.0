@@ -1,0 +1,52 @@
+Enhance the existing full-stack data analyst web application with the following additional modules and integrations:
+
+1. Automated Data Profiling:
+   - Generate dataset summaries (data types, distributions, missing values, correlations) automatically on upload.
+
+2. Data Pipeline Automation:
+   - Allow users to build reusable ETL workflows (Extract, Transform, Load).
+   - Add scheduling for recurring jobs.
+
+3. Version Control for Datasets:
+   - Track dataset changes, rollback to previous versions, and compare differences.
+
+4. Reusable Transformation Recipes:
+   - Save cleaning/preprocessing steps as templates to apply across projects.
+
+5. Data Catalog & Metadata Management:
+   - Centralized searchable library of datasets with schema info, tags, and lineage tracking.
+
+6. Collaboration & Annotation Tools:
+   - Enable comments, annotations, and sharing of datasets and dashboards.
+
+7. Automated Report Generation:
+   - Export dashboards to PDF/PowerPoint with AI-generated narrative summaries.
+
+8. External Tool Integrations:
+   - Connect to Google Drive, OneDrive, AWS S3 for data ingestion.
+   - Add connectors for Tableau and Power BI via APIs or export pipelines.
+   - Support Google Sheets/Excel import/export.
+
+9. Scheduled Jobs & Alerts:
+   - Automate recurring queries or analyses.
+   - Send alerts via email/Slack when thresholds are breached.
+
+10. Data Security & Compliance:
+   - Role-based access, encryption, audit logs.
+   - GDPR/CCPA compliance features.
+
+AI Integration:
+- Connect to OpenAI/Anthropic/Groq APIs for natural language → SQL → visualization.
+- Use LangChain or LlamaIndex to orchestrate workflows (ingestion → cleaning → EDA → visualization).
+- Integrate AutoML frameworks (PyCaret, H2O.ai) for regression, classification, clustering, forecasting.
+
+Python & R Microservices:
+- Python (Flask/FastAPI) for advanced analytics:
+  - Pandas, scikit-learn, statsmodels, matplotlib, seaborn.
+- Optional R microservice (via plumber) for specialized statistical routines:
+  - ggplot2, dplyr, caret.
+- Expose both via API endpoints callable from the main backend.
+
+Other:
+- Ensure modular code with helpers for profiling, cleaning, visualization, and reporting.
+- Maintain compatibility with existing modules (Data Import, Cleaning, EDA, Visualization, SQL Editor, AI Assistant).
