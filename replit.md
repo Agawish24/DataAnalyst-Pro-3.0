@@ -153,9 +153,17 @@ A full-stack enterprise data analytics suite with React+Vite frontend, Node.js/E
 - Backend: `POST /api/narratives/:datasetId`, `GET /api/narratives/history`
 
 ### CRM Integration (`/crm`)
-- HubSpot Private App integration (token-based)
-- Salesforce OAuth2 integration
-- Backend: `GET /api/crm/hubspot/status`, `POST /api/crm/hubspot/connect`, `GET /api/crm/salesforce/status`, `POST /api/crm/salesforce/connect`
+- **HubSpot**: Private App token auth — import Contacts, Deals, Companies
+- **Salesforce**: Username+password+security token OAuth2 — SOQL query + import as dataset
+- **Zoho CRM**: OAuth2 refresh-token flow — multi-datacenter (US/EU/India/AU), import Contacts/Leads/Deals/Accounts; auto-refreshes expired tokens
+- Backend: `GET /api/crm/hubspot/status`, `POST /api/crm/hubspot/connect`, `GET /api/crm/hubspot/:object`, `POST /api/crm/hubspot/import/:object`, `DELETE /api/crm/hubspot/disconnect`, `GET /api/crm/salesforce/status`, `POST /api/crm/salesforce/connect`, `POST /api/crm/salesforce/query`, `DELETE /api/crm/salesforce/disconnect`, `GET /api/crm/zoho/status`, `POST /api/crm/zoho/connect`, `GET /api/crm/zoho/:module`, `POST /api/crm/zoho/import/:module`, `DELETE /api/crm/zoho/disconnect`
+
+### Data Governance (`/audit` → Governance tab)
+- **Anomaly Detection**: 4 real-time pattern checks — high activity (>20 events/hr per user), login failures (>5 in 30 min), excessive exports (>10/day), off-hours access (midnight–5am); severity levels: critical/warning/info
+- **Compliance Checks**: 5 scored checks — 2FA adoption rate, PII masking coverage, audit log retention (90-day target), API key rotation (90-day), data lineage coverage; overall compliance score 0–100%
+- **Audit Log**: filterable by action/resource_type, CSV export, paginated
+- **Statistics**: top users, top actions, 30-day activity bar chart
+- Backend: `GET /api/audit` (filterable logs), `GET /api/audit/stats`, `GET /api/audit/anomalies`, `GET /api/audit/compliance`, `POST /api/audit/log`
 
 ---
 

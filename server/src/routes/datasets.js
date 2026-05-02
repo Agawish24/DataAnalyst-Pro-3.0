@@ -109,14 +109,29 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// Get full data
+// Get full data — supports both legacy (limit/offset) and paginated (page/pageSize) params
 router.get('/:id/data', authenticate, async (req, res) => {
   try {
-    const { limit = 1000, offset = 0 } = req.query;
     const tableName = `data_${req.params.id}`;
-    const data = await pool.query(`SELECT * FROM ${tableName} LIMIT $1 OFFSET $2`, [parseInt(limit), parseInt(offset)]);
     const count = await pool.query(`SELECT COUNT(*) FROM ${tableName}`);
-    res.json({ rows: data.rows, total: parseInt(count.rows[0].count) });
+    const total = parseInt(count.rows[0].count);
+
+    let lim, off, page, totalPages;
+    if (req.query.page !== undefined || req.query.pageSize !== undefined) {
+      page = Math.max(1, parseInt(req.query.page) || 1);
+      lim = Math.min(5000, Math.max(1, parseInt(req.query.pageSize) || 100));
+      off = (page - 1) * lim;
+      totalPages = Math.ceil(total / lim);
+    } else {
+      lim = Math.min(5000, parseInt(req.query.limit) || 1000);
+      off = parseInt(req.query.offset) || 0;
+      page = Math.floor(off / lim) + 1;
+      totalPages = Math.ceil(total / lim);
+    }
+
+    const data = await pool.query(`SELECT * FROM ${tableName} LIMIT $1 OFFSET $2`, [lim, off]);
+    const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+    res.json({ data: rows, rows, total, page, pageSize: lim, totalPages });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

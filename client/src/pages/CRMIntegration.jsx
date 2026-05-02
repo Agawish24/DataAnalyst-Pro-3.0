@@ -7,7 +7,7 @@ const card = { background: '#13131f', border: '1px solid rgba(255,255,255,0.08)'
 const input = { width: '100%', background: '#0d0d1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', padding: '10px 14px', fontSize: 14, boxSizing: 'border-box' };
 const btn = (bg = '#6366f1', disabled = false) => ({ padding: '10px 18px', borderRadius: 8, border: 'none', background: disabled ? '#374151' : bg, color: 'white', fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 });
 
-const TABS = ['hubspot', 'salesforce'];
+const TABS = ['hubspot', 'salesforce', 'zoho'];
 
 function HubSpotTab() {
   const [status, setStatus] = useState(null);
@@ -253,8 +253,154 @@ function SalesforceTab() {
   );
 }
 
+function ZohoTab() {
+  const [status, setStatus] = useState(null);
+  const [form, setForm] = useState({ clientId: '', clientSecret: '', refreshToken: '', dataCenterUrl: 'https://www.zohoapis.com' });
+  const [connecting, setConnecting] = useState(false);
+  const [activeModule, setActiveModule] = useState('Contacts');
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(null);
+
+  useEffect(() => { api.get('/crm/zoho/status').then(r => setStatus(r.data)).catch(() => setStatus({ connected: false })); }, []);
+
+  const connect = async () => {
+    setConnecting(true);
+    try {
+      await api.post('/crm/zoho/connect', form);
+      setStatus({ connected: true });
+      toast.success('Connected to Zoho CRM');
+    } catch (e) { toast.error(e.response?.data?.error || 'Connection failed'); }
+    finally { setConnecting(false); }
+  };
+
+  const disconnect = async () => {
+    await api.delete('/crm/zoho/disconnect');
+    setStatus({ connected: false }); setRecords([]);
+    toast.success('Disconnected from Zoho CRM');
+  };
+
+  const fetchModule = async (mod) => {
+    setActiveModule(mod); setLoading(true);
+    try {
+      const r = await api.get(`/crm/zoho/${mod}`);
+      setRecords(r.data.records || []);
+    } catch (e) { toast.error(e.response?.data?.error || 'Fetch failed'); }
+    finally { setLoading(false); }
+  };
+
+  const importModule = async (mod) => {
+    setImporting(mod);
+    try {
+      const r = await api.post(`/crm/zoho/import/${mod}`);
+      toast.success(`Imported ${r.data.rowCount} ${mod} as dataset "${r.data.name}"`);
+    } catch (e) { toast.error(e.response?.data?.error || 'Import failed'); }
+    finally { setImporting(null); }
+  };
+
+  const MODULES = ['Contacts', 'Leads', 'Deals', 'Accounts'];
+  const MOD_ICONS = { Contacts: <Users size={13} />, Leads: <Users size={13} />, Deals: <Briefcase size={13} />, Accounts: <Building2 size={13} /> };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+              🟢 Zoho CRM
+              {status?.connected && <span style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', padding: '2px 10px', borderRadius: 20, fontSize: 12 }}>Connected</span>}
+              {status?.expired && <span style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', padding: '2px 10px', borderRadius: 20, fontSize: 12 }}>Token Expired</span>}
+            </div>
+            <div style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>Import Contacts, Leads, Deals, and Accounts from Zoho CRM</div>
+          </div>
+          {status?.connected && <button onClick={disconnect} style={{ ...btn('#374151'), fontSize: 12 }}><XCircle size={13} /> Disconnect</button>}
+        </div>
+
+        {!status?.connected ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>CLIENT ID</label>
+                <input value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} placeholder="1000.XXXXXXXXXXXXXXXX" style={input} />
+              </div>
+              <div>
+                <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>CLIENT SECRET</label>
+                <input type="password" value={form.clientSecret} onChange={e => setForm(f => ({ ...f, clientSecret: e.target.value }))} placeholder="••••••••••••" style={input} />
+              </div>
+              <div>
+                <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>REFRESH TOKEN</label>
+                <input type="password" value={form.refreshToken} onChange={e => setForm(f => ({ ...f, refreshToken: e.target.value }))} placeholder="1000.xxxxxxxxxxxx" style={input} />
+              </div>
+              <div>
+                <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>DATA CENTER</label>
+                <select value={form.dataCenterUrl} onChange={e => setForm(f => ({ ...f, dataCenterUrl: e.target.value }))}
+                  style={{ ...input, width: '100%' }}>
+                  <option value="https://www.zohoapis.com">US (zohoapis.com)</option>
+                  <option value="https://www.zohoapis.eu">EU (zohoapis.eu)</option>
+                  <option value="https://www.zohoapis.in">India (zohoapis.in)</option>
+                  <option value="https://www.zohoapis.com.au">Australia (zohoapis.com.au)</option>
+                </select>
+              </div>
+            </div>
+            <button onClick={connect} disabled={connecting || !form.clientId || !form.clientSecret || !form.refreshToken}
+              style={btn('#4ade80', connecting || !form.clientId || !form.clientSecret || !form.refreshToken)}>
+              {connecting ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plug size={14} />}
+              Connect to Zoho CRM
+            </button>
+            <div style={{ padding: '10px 14px', background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, fontSize: 12, color: '#6b7280' }}>
+              Create a Server-Based OAuth client at <a href="https://api-console.zoho.com" target="_blank" rel="noopener noreferrer" style={{ color: '#4ade80' }}>api-console.zoho.com</a>.
+              Generate a refresh token with scopes: <code style={{ color: '#fbbf24' }}>ZohoCRM.modules.ALL</code>, <code style={{ color: '#fbbf24' }}>ZohoCRM.settings.ALL</code>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {MODULES.map(mod => (
+                <div key={mod} style={{ flex: 1, display: 'flex', gap: 6 }}>
+                  <button onClick={() => fetchModule(mod)} style={{ ...btn(activeModule === mod ? '#4ade80' : '#374151'), flex: 1, justifyContent: 'center', fontSize: 12 }}>
+                    {MOD_ICONS[mod]} {mod}
+                  </button>
+                  <button onClick={() => importModule(mod)} disabled={!!importing} title={`Import ${mod} as dataset`}
+                    style={{ ...btn('#10b981', !!importing), padding: '10px 12px', fontSize: 12 }}>
+                    {importing === mod ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={12} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}><Loader size={24} style={{ animation: 'spin 1s linear infinite', margin: '0 auto' }} /></div>
+            ) : records.length > 0 ? (
+              <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.04)', color: '#9ca3af', fontSize: 11, display: 'flex', gap: 8 }}>
+                  {Object.keys(records[0]).slice(0, 5).map(k => <span key={k} style={{ flex: 1, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k}</span>)}
+                </div>
+                {records.slice(0, 8).map((rec, i) => (
+                  <div key={rec.id || i} style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: 8 }}>
+                    {Object.values(rec).slice(0, 5).map((v, ci) => <span key={ci} style={{ flex: 1, color: '#d1d5db', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(v ?? '—')}</span>)}
+                  </div>
+                ))}
+                {records.length > 8 && <div style={{ padding: '8px 14px', color: '#4b5563', fontSize: 11 }}>+{records.length - 8} more records</div>}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 32, color: '#6b7280', fontSize: 13 }}>
+                Click a module above to preview your Zoho CRM data
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CRMIntegration() {
   const [activeTab, setActiveTab] = useState('hubspot');
+  const CRM_TABS = [
+    { id: 'hubspot', label: '🟠 HubSpot', color: '#ff7a59' },
+    { id: 'salesforce', label: '☁️ Salesforce', color: '#1798c1' },
+    { id: 'zoho', label: '🟢 Zoho CRM', color: '#4ade80' },
+  ];
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
@@ -262,11 +408,11 @@ export default function CRMIntegration() {
         <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f3f4f6', margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Building2 size={24} color="#6366f1" /> CRM Integration
         </h1>
-        <p style={{ color: '#6b7280', margin: 0 }}>Connect to HubSpot or Salesforce to pull CRM data directly into your analysis pipeline</p>
+        <p style={{ color: '#6b7280', margin: 0 }}>Connect HubSpot, Salesforce, or Zoho CRM to pull data directly into your analysis pipeline</p>
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
-        {[{ id: 'hubspot', label: '🟠 HubSpot', color: '#ff7a59' }, { id: 'salesforce', label: '☁️ Salesforce', color: '#1798c1' }].map(tab => (
+        {CRM_TABS.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             style={{ padding: '10px 24px', border: 'none', borderRadius: 8, cursor: 'pointer', background: activeTab === tab.id ? `${tab.color}20` : 'transparent', color: activeTab === tab.id ? tab.color : '#6b7280', fontWeight: activeTab === tab.id ? 700 : 400, fontSize: 14, outline: activeTab === tab.id ? `1px solid ${tab.color}50` : 'none' }}>
             {tab.label}
@@ -276,6 +422,7 @@ export default function CRMIntegration() {
 
       {activeTab === 'hubspot' && <HubSpotTab />}
       {activeTab === 'salesforce' && <SalesforceTab />}
+      {activeTab === 'zoho' && <ZohoTab />}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -208,4 +208,179 @@ router.delete('/salesforce/disconnect', authenticate, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Zoho CRM ──────────────────────────────────────────────────
+
+const ZOHO_ACCOUNTS = 'https://accounts.zoho.com';
+
+router.get('/zoho/status', authenticate, async (req, res) => {
+  try {
+    const creds = await getCreds(req.user.id, 'zoho');
+    if (!creds?.accessToken) return res.json({ connected: false });
+    try {
+      const dc = creds.dataCenterUrl || 'https://www.zohoapis.com';
+      await axios.get(`${dc}/crm/v3/Contacts?fields=Full_Name&per_page=1`, {
+        headers: { Authorization: `Zoho-oauthtoken ${creds.accessToken}` }, timeout: 6000,
+      });
+      res.json({ connected: true, email: creds.email || null });
+    } catch {
+      res.json({ connected: false, expired: true });
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/zoho/connect', authenticate, async (req, res) => {
+  try {
+    const { clientId, clientSecret, refreshToken, dataCenterUrl = 'https://www.zohoapis.com' } = req.body;
+    if (!clientId || !clientSecret || !refreshToken) {
+      return res.status(400).json({ error: 'clientId, clientSecret, and refreshToken are required' });
+    }
+    const dc = dataCenterUrl.replace(/\/$/, '');
+    const accountsDomain = dc.includes('eu') ? 'https://accounts.zoho.eu'
+      : dc.includes('in') ? 'https://accounts.zoho.in'
+      : dc.includes('com.au') ? 'https://accounts.zoho.com.au'
+      : ZOHO_ACCOUNTS;
+
+    const r = await axios.post(`${accountsDomain}/oauth/v2/token`, null, {
+      params: { grant_type: 'refresh_token', client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken },
+      timeout: 10000,
+    });
+    const accessToken = r.data.access_token;
+    if (!accessToken) return res.status(400).json({ error: 'Failed to obtain access token — check credentials' });
+
+    // Verify by hitting Contacts
+    await axios.get(`${dc}/crm/v3/Contacts?fields=Full_Name&per_page=1`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }, timeout: 8000,
+    });
+    await pool.query(
+      'INSERT INTO crm_connections (user_id, provider, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, provider) DO UPDATE SET credentials=$3, updated_at=NOW()',
+      [req.user.id, 'zoho', JSON.stringify({ clientId, clientSecret, refreshToken, accessToken, dataCenterUrl: dc })]
+    );
+    res.json({ ok: true, message: 'Connected to Zoho CRM' });
+  } catch (e) {
+    res.status(400).json({ error: e.response?.data?.message || e.response?.data?.error || e.message });
+  }
+});
+
+router.delete('/zoho/disconnect', authenticate, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND provider=$2', [req.user.id, 'zoho']);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+const zohoRefresh = async (creds) => {
+  const accountsDomain = (creds.dataCenterUrl || '').includes('eu') ? 'https://accounts.zoho.eu'
+    : (creds.dataCenterUrl || '').includes('in') ? 'https://accounts.zoho.in'
+    : ZOHO_ACCOUNTS;
+  const r = await axios.post(`${accountsDomain}/oauth/v2/token`, null, {
+    params: { grant_type: 'refresh_token', client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: creds.refreshToken },
+    timeout: 10000,
+  });
+  return r.data.access_token;
+};
+
+router.get('/zoho/:module', authenticate, async (req, res) => {
+  try {
+    const creds = await getCreds(req.user.id, 'zoho');
+    if (!creds?.accessToken) return res.status(401).json({ error: 'Not connected to Zoho CRM' });
+    const module_ = req.params.module;
+    const dc = creds.dataCenterUrl || 'https://www.zohoapis.com';
+    const fieldMap = {
+      Contacts: 'Full_Name,Email,Phone,Mobile,Account_Name,Department,Title,Created_Time',
+      Leads: 'Full_Name,Email,Phone,Company,Lead_Source,Lead_Status,Industry,Created_Time',
+      Deals: 'Deal_Name,Amount,Stage,Closing_Date,Account_Name,Probability,Created_Time',
+      Accounts: 'Account_Name,Website,Industry,Annual_Revenue,Employees,Phone,Billing_Country,Created_Time',
+    };
+    const fields = fieldMap[module_] || 'id';
+    let allRecords = [];
+    let page = 1;
+    const maxPages = parseInt(req.query.pages) || 3;
+    while (page <= maxPages) {
+      const r = await axios.get(`${dc}/crm/v3/${module_}`, {
+        headers: { Authorization: `Zoho-oauthtoken ${creds.accessToken}` },
+        params: { fields, per_page: 200, page },
+        timeout: 15000,
+      });
+      const data = r.data?.data || [];
+      allRecords = allRecords.concat(data.map(rec => {
+        const { $currency_symbol, $process_flow, $approved, $approval, ...rest } = rec;
+        return rest;
+      }));
+      if (!r.data?.info?.more_records) break;
+      page++;
+    }
+    res.json({ module: module_, count: allRecords.length, records: allRecords });
+  } catch (e) {
+    if (e.response?.status === 401) {
+      try {
+        const creds = await getCreds(req.user.id, 'zoho');
+        const newToken = await zohoRefresh(creds);
+        await pool.query(
+          'UPDATE crm_connections SET credentials=$1, updated_at=NOW() WHERE user_id=$2 AND provider=$3',
+          [JSON.stringify({ ...creds, accessToken: newToken }), req.user.id, 'zoho']
+        );
+        return res.status(401).json({ error: 'Token refreshed — please retry' });
+      } catch { }
+    }
+    res.status(500).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+router.post('/zoho/import/:module', authenticate, async (req, res) => {
+  try {
+    const creds = await getCreds(req.user.id, 'zoho');
+    if (!creds?.accessToken) return res.status(401).json({ error: 'Not connected to Zoho CRM' });
+    const module_ = req.params.module;
+    const dc = creds.dataCenterUrl || 'https://www.zohoapis.com';
+    const fieldMap = {
+      Contacts: 'Full_Name,Email,Phone,Account_Name,Department,Title,Created_Time',
+      Leads: 'Full_Name,Email,Phone,Company,Lead_Source,Lead_Status,Industry,Created_Time',
+      Deals: 'Deal_Name,Amount,Stage,Closing_Date,Account_Name,Probability,Created_Time',
+      Accounts: 'Account_Name,Website,Industry,Annual_Revenue,Employees,Phone,Created_Time',
+    };
+    const fields = fieldMap[module_] || 'id';
+    let allRecords = [];
+    let page = 1;
+    while (page <= 10) {
+      const r = await axios.get(`${dc}/crm/v3/${module_}`, {
+        headers: { Authorization: `Zoho-oauthtoken ${creds.accessToken}` },
+        params: { fields, per_page: 200, page }, timeout: 20000,
+      });
+      const data = r.data?.data || [];
+      allRecords = allRecords.concat(data);
+      if (!r.data?.info?.more_records) break;
+      page++;
+    }
+    if (!allRecords.length) return res.status(400).json({ error: `No ${module_} records found in Zoho CRM` });
+
+    const cleaned = allRecords.map(rec => {
+      const { $currency_symbol, $process_flow, $approved, $approval, id, ...rest } = rec;
+      return { zoho_id: id, ...rest };
+    });
+    const cols = Object.keys(cleaned[0]);
+    const numericCols = new Set(['Amount', 'Annual_Revenue', 'Employees', 'Probability']);
+    const schema = cols.map(c => ({ name: c, type: numericCols.has(c) ? 'numeric' : 'text' }));
+    const dsName = `Zoho ${module_}`;
+    const dsResult = await pool.query(
+      'INSERT INTO datasets (name, source, row_count, column_count, schema, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [dsName, 'zoho', cleaned.length, cols.length, JSON.stringify(schema), req.user.id]
+    );
+    const dsId = dsResult.rows[0].id;
+    const safeCols = cols.map(c => c.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase());
+    const colDefs = safeCols.map((c, i) => `"${c}" ${schema[i].type === 'numeric' ? 'NUMERIC' : 'TEXT'}`).join(', ');
+    await pool.query(`CREATE TABLE IF NOT EXISTS "data_${dsId}" (row_index SERIAL, ${colDefs})`);
+    const chunkSize = 100;
+    for (let i = 0; i < cleaned.length; i += chunkSize) {
+      const batch = cleaned.slice(i, i + chunkSize);
+      const vals = batch.map((_, ri) => `(${safeCols.map((_, ci) => `$${ri * safeCols.length + ci + 1}`).join(',')})`).join(',');
+      const flat = batch.flatMap(row => cols.map((c, ci) => {
+        const v = row[c];
+        return schema[ci].type === 'numeric' ? (isNaN(parseFloat(v)) ? null : parseFloat(v)) : (v != null ? String(v) : null);
+      }));
+      await pool.query(`INSERT INTO "data_${dsId}" (${safeCols.map(c => `"${c}"`).join(',')}) VALUES ${vals}`, flat);
+    }
+    res.json({ ok: true, datasetId: dsId, name: dsName, rowCount: cleaned.length, columns: cols.length });
+  } catch (e) { res.status(500).json({ error: e.response?.data?.message || e.message }); }
+});
+
 module.exports = router;
