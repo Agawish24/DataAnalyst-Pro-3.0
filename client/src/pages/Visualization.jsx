@@ -31,11 +31,13 @@ export default function Visualization() {
   useEffect(() => {
     if (activeDataset) {
       api.get(`/datasets/${activeDataset.id}/data?limit=2000`).then(r => setDataRows(r.data.rows)).catch(() => {});
-      if (activeDataset.schema?.length >= 2) {
-        const cols = activeDataset.schema;
-        const numCol = cols.find(c => c.type === 'numeric');
-        const catCol = cols.find(c => c.type !== 'numeric');
-        setConfig(prev => ({ ...prev, xKey: catCol?.name || cols[0]?.name || '', yKey: numCol?.name || cols[1]?.name || '' }));
+      const sArr = activeDataset.schema
+        ? Object.entries(activeDataset.schema).map(([name, type]) => ({ name, type }))
+        : [];
+      if (sArr.length >= 2) {
+        const numCol = sArr.find(c => c.type === 'numeric' || c.type === 'integer');
+        const catCol = sArr.find(c => c.type !== 'numeric' && c.type !== 'integer');
+        setConfig(prev => ({ ...prev, xKey: catCol?.name || sArr[0]?.name || '', yKey: numCol?.name || sArr[1]?.name || '' }));
       }
     }
   }, [activeDataset]);
@@ -101,7 +103,7 @@ export default function Visualization() {
     }
   };
 
-  const cols = activeDataset?.schema?.map(c => c.name) || [];
+  const cols = activeDataset?.schema ? Object.keys(activeDataset.schema) : [];
 
   return (
     <div className="page">

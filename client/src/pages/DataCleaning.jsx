@@ -75,8 +75,11 @@ export default function DataCleaning() {
     } finally { setApplying(false); }
   };
 
-  const numericCols = activeDataset?.schema?.filter(c => c.type === 'numeric').map(c => c.name) || [];
-  const allCols = activeDataset?.schema?.map(c => c.name) || [];
+  const schemaArr = activeDataset?.schema
+    ? Object.entries(activeDataset.schema).map(([name, type]) => ({ name, type }))
+    : [];
+  const numericCols = schemaArr.filter(c => c.type === 'numeric' || c.type === 'integer').map(c => c.name);
+  const allCols = schemaArr.map(c => c.name);
   const selectedOpDef = OPERATIONS.find(o => o.id === selectedOp);
 
   return (

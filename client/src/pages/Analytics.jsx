@@ -20,8 +20,11 @@ export default function Analytics() {
 
   useEffect(() => { fetchDatasets(); }, []);
 
-  const numericCols = activeDataset?.schema?.filter(c => c.type === 'numeric').map(c => c.name) || [];
-  const allCols = activeDataset?.schema?.map(c => c.name) || [];
+  const schemaArr = activeDataset?.schema
+    ? Object.entries(activeDataset.schema).map(([name, type]) => ({ name, type }))
+    : [];
+  const numericCols = schemaArr.filter(c => c.type === 'numeric' || c.type === 'integer').map(c => c.name);
+  const allCols = schemaArr.map(c => c.name);
 
   const runAnalysis = async () => {
     if (!activeDataset) { toast.error('Select a dataset first'); return; }
