@@ -35,6 +35,17 @@ router.get('/types', authenticate, (req, res) => {
   ]);
 });
 
+router.get('/rules', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT mr.*, d.name as dataset_name FROM masking_rules mr
+       LEFT JOIN datasets d ON mr.dataset_id = d.id
+       ORDER BY mr.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:datasetId', authenticate, async (req, res) => {
   try {
     const r = await pool.query('SELECT * FROM masking_rules WHERE dataset_id=$1 ORDER BY created_at', [req.params.datasetId]);
@@ -74,20 +85,6 @@ router.delete('/:datasetId/:ruleId', authenticate, async (req, res) => {
     await pool.query('DELETE FROM masking_rules WHERE id=$1 AND dataset_id=$2', [req.params.ruleId, req.params.datasetId]);
     res.json({ message: 'Rule deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/types', authenticate, (req, res) => {
-  res.json([
-    { type: 'email', label: 'Email Masking', example: 'jo***@example.com', description: 'Masks the username part of email addresses' },
-    { type: 'phone', label: 'Phone Masking', example: '***-***-4567', description: 'Shows only last 4 digits' },
-    { type: 'credit_card', label: 'Credit Card', example: '****-****-****-1234', description: 'Shows only last 4 digits' },
-    { type: 'name', label: 'Name Masking', example: 'J*** D***', description: 'Shows only first letter of each name part' },
-    { type: 'partial', label: 'Partial Reveal', example: 'abc***', description: 'Shows first N characters (configurable)' },
-    { type: 'hash', label: 'Consistent Hash', example: 'hash_3x7f9', description: 'Deterministic hash — same value always maps to same hash' },
-    { type: 'redact', label: 'Full Redaction', example: '[REDACTED]', description: 'Completely replaces value' },
-    { type: 'nullify', label: 'Nullify', example: 'null', description: 'Replaces with null/empty' },
-    { type: 'range', label: 'Numeric Range', example: '30-40', description: 'Replaces numbers with range buckets (configurable bucket size)' },
-  ]);
 });
 
 module.exports = router;

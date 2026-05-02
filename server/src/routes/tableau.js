@@ -90,14 +90,14 @@ const buildTDS = (dsName, csvFileName, columns) => {
 
 router.get('/datasets', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT id, name, row_count, schema, created_at FROM datasets WHERE created_by=$1 ORDER BY created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT id, name, row_count, schema, created_at FROM datasets WHERE uploaded_by=$1 ORDER BY created_at DESC', [req.user.id]);
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/export/:id/csv', authenticate, async (req, res) => {
   try {
-    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.id, req.user.id]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
     const dataset = ds.rows[0];
     const rows = await pool.query(`SELECT * FROM "data_${dataset.id}" ORDER BY row_index LIMIT 100000`);
@@ -120,12 +120,12 @@ router.get('/export/:id/csv', authenticate, async (req, res) => {
 
 router.get('/export/:id/twb', authenticate, async (req, res) => {
   try {
-    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.id, req.user.id]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
     const dataset = ds.rows[0];
-    const schema = dataset.schema || {};
+    const rawSchema = dataset.schema || [];
     const csvFileName = `${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.csv`;
-    const columns = Object.entries(schema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
+    const columns = Array.isArray(rawSchema) ? rawSchema.map(s => ({ name: s.name, numeric: s.type === 'numeric' })) : Object.entries(rawSchema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
     const twb = buildTWB(dataset.name, csvFileName, columns);
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.twb"`);
@@ -135,12 +135,12 @@ router.get('/export/:id/twb', authenticate, async (req, res) => {
 
 router.get('/export/:id/tds', authenticate, async (req, res) => {
   try {
-    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.id, req.user.id]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
     const dataset = ds.rows[0];
-    const schema = dataset.schema || {};
+    const rawSchema = dataset.schema || [];
     const csvFileName = `${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.csv`;
-    const columns = Object.entries(schema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
+    const columns = Array.isArray(rawSchema) ? rawSchema.map(s => ({ name: s.name, numeric: s.type === 'numeric' })) : Object.entries(rawSchema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
     const tds = buildTDS(dataset.name, csvFileName, columns);
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.tds"`);
@@ -150,11 +150,11 @@ router.get('/export/:id/tds', authenticate, async (req, res) => {
 
 router.get('/export/:id/preview', authenticate, async (req, res) => {
   try {
-    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.id, req.user.id]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
     const dataset = ds.rows[0];
-    const schema = dataset.schema || {};
-    const columns = Object.entries(schema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
+    const rawSchema = dataset.schema || [];
+    const columns = Array.isArray(rawSchema) ? rawSchema.map(s => ({ name: s.name, numeric: s.type === 'numeric' })) : Object.entries(rawSchema).map(([name, type]) => ({ name, numeric: type === 'numeric' }));
     const csvFileName = `${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.csv`;
     res.json({
       name: dataset.name, rowCount: dataset.row_count, columns,

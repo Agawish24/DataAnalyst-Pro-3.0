@@ -43,6 +43,10 @@ const pdfExportRouter = require('./routes/pdfExport');
 const kaggleRouter = require('./routes/kaggle');
 const githubRouter = require('./routes/github');
 const tableauRouter = require('./routes/tableau');
+const streamingRouter = require('./routes/streaming');
+const knowledgeGraphRouter = require('./routes/knowledgeGraph');
+const narrativesRouter = require('./routes/narratives');
+const crmRouter = require('./routes/crm');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -94,6 +98,10 @@ app.use('/api/pdf', pdfExportRouter);
 app.use('/api/kaggle', kaggleRouter);
 app.use('/api/github', githubRouter);
 app.use('/api/tableau', tableauRouter);
+app.use('/api/streaming', streamingRouter);
+app.use('/api/knowledge-graph', knowledgeGraphRouter);
+app.use('/api/narratives', narrativesRouter);
+app.use('/api/crm', crmRouter);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '3.0.0' }));
 

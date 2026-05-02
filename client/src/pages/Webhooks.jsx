@@ -19,8 +19,14 @@ export default function Webhooks() {
   const load = async () => { try { const r = await api.get('/webhooks'); setWebhooks(r.data); } catch {} };
   const loadHistory = async (id) => { try { const r = await api.get(`/webhooks/${id}/history`); setHistory(r.data); } catch {} };
   const loadCols = async (dsId) => {
-    try { const r = await api.get(`/datasets/${dsId}`); setCols(Object.keys(r.data.schema || {}).filter(k => ['integer','numeric','float','double','decimal','number'].some(t => String(r.data.schema[k]).toLowerCase().includes(t)))); }
-    catch {}
+    try {
+      const r = await api.get(`/datasets/${dsId}`);
+      const schema = r.data.schema || [];
+      const entries = Array.isArray(schema)
+        ? schema.map(c => [c.name, c.type])
+        : Object.entries(schema);
+      setCols(entries.filter(([, t]) => ['integer','numeric','float','double','decimal','number'].some(k => String(t).toLowerCase().includes(k))).map(([n]) => n));
+    } catch {}
   };
 
   const create = async () => {

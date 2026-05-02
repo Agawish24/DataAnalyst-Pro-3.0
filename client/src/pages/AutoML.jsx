@@ -21,7 +21,12 @@ export default function AutoML() {
   useEffect(() => { if (activeDataset) { loadColumns(); setResult(null); setTargetCol(''); setFeatureCols([]); } }, [activeDataset]);
 
   const loadColumns = async () => {
-    try { const r = await api.get(`/datasets/${activeDataset.id}`); setColumns(Object.keys(r.data.schema || {})); }
+    try {
+      const r = await api.get(`/datasets/${activeDataset.id}`);
+      const schema = r.data.schema || [];
+      const cols = Array.isArray(schema) ? schema.map(c => c.name) : Object.keys(schema);
+      setColumns(cols);
+    }
     catch {}
   };
   const loadHistory = async () => { try { const r = await api.get('/automl/runs'); setHistory(r.data); } catch {} };

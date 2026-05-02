@@ -40,6 +40,9 @@ import AutoML from './pages/AutoML';
 import Annotations from './pages/Annotations';
 import PDFExport from './pages/PDFExport';
 import Integrations from './pages/Integrations';
+import StreamingDashboard from './pages/StreamingDashboard';
+import KnowledgeGraph from './pages/KnowledgeGraph';
+import CRMIntegration from './pages/CRMIntegration';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -102,6 +105,9 @@ const AppRoutes = () => {
       <Route path="/annotations" element={wrap(Annotations)} />
       <Route path="/pdf-export" element={wrap(PDFExport)} />
       <Route path="/integrations" element={wrap(Integrations)} />
+      <Route path="/streaming" element={wrap(StreamingDashboard)} />
+      <Route path="/knowledge-graph" element={wrap(KnowledgeGraph)} />
+      <Route path="/crm" element={wrap(CRMIntegration)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );

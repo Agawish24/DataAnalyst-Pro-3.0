@@ -151,4 +151,107 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
+// Google Sheets import (public sheets via CSV export URL, or any direct CSV URL)
+router.post('/google-sheets', authenticate, async (req, res) => {
+  try {
+    const { url, name: dsName } = req.body;
+    if (!url) return res.status(400).json({ error: 'url required' });
+
+    let csvUrl = url;
+    // Convert Google Sheets edit URL to CSV export URL
+    const sheetMatch = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (sheetMatch) {
+      const sheetId = sheetMatch[1];
+      const gidMatch = url.match(/[#&]gid=(\d+)/);
+      const gid = gidMatch ? gidMatch[1] : '0';
+      csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    }
+
+    const axios = require('axios');
+    const { Readable } = require('stream');
+    const csvParser = require('csv-parser');
+
+    const r = await axios.get(csvUrl, { responseType: 'text', timeout: 15000, headers: { Accept: 'text/csv' } });
+    const content = r.data;
+
+    const rows = [];
+    await new Promise((resolve, reject) => {
+      Readable.from([content]).pipe(csvParser()).on('data', row => rows.push(row)).on('end', resolve).on('error', reject);
+    });
+
+    if (!rows.length) return res.status(400).json({ error: 'Sheet is empty or not accessible. Make sure it is publicly shared.' });
+
+    const cols = Object.keys(rows[0]);
+    const schema = cols.map(col => {
+      const vals = rows.slice(0, 100).map(r => r[col]).filter(v => v !== '' && v != null);
+      const nums = vals.filter(v => !isNaN(Number(v)));
+      return { name: col, type: nums.length > vals.length * 0.8 ? 'numeric' : 'text' };
+    });
+
+    const finalName = dsName || (sheetMatch ? 'Google Sheet Import' : `CSV: ${csvUrl.split('/').pop().split('?')[0]}`);
+    const result = await pool.query(
+      'INSERT INTO datasets (name, source, schema, row_count, column_count, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [finalName, 'google_sheets', JSON.stringify(schema), rows.length, cols.length, req.user.id]
+    );
+    const dataset = result.rows[0];
+    const tableName = `data_${dataset.id}`;
+    const safeCols = cols.map(c => c.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1').substring(0, 60).toLowerCase());
+    const colDefs = safeCols.map((c, i) => `"${c}" ${schema[i].type === 'numeric' ? 'NUMERIC' : 'TEXT'}`).join(', ');
+    await pool.query(`CREATE TABLE IF NOT EXISTS "${tableName}" (row_index SERIAL, ${colDefs})`);
+
+    const batchSize = 200;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const valPH = batch.map((_, bi) => `(${safeCols.map((_, ci) => `$${bi * safeCols.length + ci + 1}`).join(',')})`).join(',');
+      const flat = batch.flatMap(row => cols.map((c, ci) => {
+        const v = row[c];
+        return schema[ci].type === 'numeric' ? (isNaN(Number(v)) ? null : Number(v)) : (v ?? null);
+      }));
+      await pool.query(`INSERT INTO "${tableName}" (${safeCols.map(c => `"${c}"`).join(',')}) VALUES ${valPH}`, flat);
+    }
+
+    res.status(201).json({ ...dataset, rowCount: rows.length, columns: cols.length, preview: rows.slice(0, 5) });
+  } catch (err) {
+    const msg = err.response?.status === 403 ? 'Sheet is private. Share the sheet publicly (Anyone with link → Viewer) first.'
+      : err.response?.status === 404 ? 'Sheet not found. Check the URL.'
+      : err.message;
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Large dataset streaming export (chunked CSV for millions of rows)
+router.get('/:id/export/csv', authenticate, async (req, res) => {
+  try {
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.id]);
+    if (!ds.rows.length) return res.status(404).json({ error: 'Not found' });
+    const dataset = ds.rows[0];
+    const schema = Array.isArray(dataset.schema) ? dataset.schema : [];
+    const cols = schema.map(s => s.name);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}.csv"`);
+
+    res.write(cols.map(c => `"${c}"`).join(',') + '\n');
+
+    const CHUNK = 10000;
+    let offset = 0;
+    let done = false;
+    while (!done) {
+      const chunk = await pool.query(`SELECT * FROM "data_${dataset.id}" ORDER BY row_index LIMIT $1 OFFSET $2`, [CHUNK, offset]);
+      if (!chunk.rows.length) { done = true; break; }
+      for (const row of chunk.rows) {
+        const line = cols.map(c => {
+          const v = row[c] ?? '';
+          const s = String(v);
+          return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+        }).join(',');
+        res.write(line + '\n');
+      }
+      offset += CHUNK;
+      if (chunk.rows.length < CHUNK) done = true;
+    }
+    res.end();
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

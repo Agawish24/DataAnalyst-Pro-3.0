@@ -355,7 +355,7 @@ function TableauTab() {
           <div key={ds.id} onClick={() => loadPreview(ds)}
             style={{ ...card, cursor: 'pointer', padding: 14, border: `1px solid ${selected?.id === ds.id ? '#e8762c' : 'rgba(255,255,255,0.08)'}`, background: selected?.id === ds.id ? 'rgba(232,118,44,0.08)' : '#13131f' }}>
             <div style={{ color: '#f3f4f6', fontWeight: 600, fontSize: 13 }}>{ds.name}</div>
-            <div style={{ color: '#6b7280', fontSize: 11, marginTop: 3 }}>{(ds.row_count || 0).toLocaleString()} rows · {Object.keys(ds.schema || {}).length} cols</div>
+            <div style={{ color: '#6b7280', fontSize: 11, marginTop: 3 }}>{(ds.row_count || 0).toLocaleString()} rows · {Array.isArray(ds.schema) ? ds.schema.length : Object.keys(ds.schema || {}).length} cols</div>
           </div>
         ))}
       </div>

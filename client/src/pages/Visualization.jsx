@@ -103,7 +103,9 @@ export default function Visualization() {
     }
   };
 
-  const cols = activeDataset?.schema ? Object.keys(activeDataset.schema) : [];
+  const cols = activeDataset?.schema
+    ? (Array.isArray(activeDataset.schema) ? activeDataset.schema.map(c => c.name) : Object.keys(activeDataset.schema))
+    : [];
 
   return (
     <div className="page">

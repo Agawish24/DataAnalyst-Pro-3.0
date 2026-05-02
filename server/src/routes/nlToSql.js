@@ -108,18 +108,23 @@ const parseNL = async (text, datasetId) => {
   return { sql: `SELECT *\nFROM dataset\nLIMIT 100`, confidence: 0.3, detected: {} };
 };
 
-router.post('/convert', authenticate, async (req, res) => {
+const handleConvert = async (req, res) => {
   try {
-    const { text, dataset_id } = req.body;
-    if (!text) return res.status(400).json({ error: 'text is required' });
-    const result = await parseNL(text, dataset_id);
+    const { text, question, dataset_id, datasetId } = req.body;
+    const inputText = text || question;
+    const dsId = dataset_id || datasetId;
+    if (!inputText) return res.status(400).json({ error: 'text or question is required' });
+    const result = await parseNL(inputText, dsId);
     await pool.query(
       'INSERT INTO nl_queries (natural_text, generated_sql, dataset_id, confidence, user_id) VALUES ($1,$2,$3,$4,$5)',
-      [text, result.sql, dataset_id || null, result.confidence, req.user.id]
+      [inputText, result.sql, dsId || null, result.confidence, req.user.id]
     ).catch(() => {});
-    res.json({ input: text, sql: result.sql, confidence: result.confidence, detected: result.detected });
+    res.json({ input: inputText, sql: result.sql, confidence: result.confidence, detected: result.detected });
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+};
+
+router.post('/query', authenticate, handleConvert);
+router.post('/convert', authenticate, handleConvert);
 
 router.get('/history', authenticate, async (req, res) => {
   try {

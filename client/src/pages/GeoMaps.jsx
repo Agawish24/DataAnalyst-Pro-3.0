@@ -22,8 +22,11 @@ export default function GeoMaps() {
 
   const loadLayers = async () => { try { const r = await api.get('/geo'); setLayers(r.data); } catch {} };
   const loadColumns = async () => {
-    try { const r = await api.get(`/datasets/${activeDataset.id}`); setColumns(Object.keys(r.data.schema || {})); }
-    catch {}
+    try {
+      const r = await api.get(`/datasets/${activeDataset.id}`);
+      const schema = r.data.schema || [];
+      setColumns(Array.isArray(schema) ? schema.map(c => c.name) : Object.keys(schema));
+    } catch {}
   };
 
   const createLayer = async () => {

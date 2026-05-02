@@ -88,6 +88,42 @@ ${catCols.length ? `
 </html>`;
 };
 
+router.get('/templates', authenticate, (req, res) => {
+  res.json([
+    { id: 'executive', name: 'Executive Summary', description: 'High-level KPIs, narrative, and key findings', sections: ['overview', 'narrative', 'kpis'] },
+    { id: 'detailed', name: 'Detailed Analysis', description: 'Full statistical breakdown with all column stats', sections: ['overview', 'narrative', 'numeric', 'categorical', 'quality'] },
+    { id: 'quality', name: 'Data Quality Report', description: 'Missing values, outliers, and data health assessment', sections: ['overview', 'quality', 'recommendations'] },
+    { id: 'distribution', name: 'Distribution Profile', description: 'Column distributions and statistical summaries', sections: ['overview', 'numeric', 'categorical'] },
+  ]);
+});
+
+router.post('/generate', authenticate, async (req, res) => {
+  const { datasetId, title, template = 'detailed' } = req.body;
+  if (!datasetId) return res.status(400).json({ error: 'datasetId required' });
+  req.params = { datasetId: String(datasetId) };
+  req.body.title = title;
+  try {
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.datasetId]);
+    if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
+    const { computeFullSummary } = require('../helpers/statsHelper');
+    const { getDataQuality } = require('../helpers/dataClean');
+    let profile;
+    const cached = await pool.query('SELECT profile_data FROM data_profiles WHERE dataset_id=$1 ORDER BY generated_at DESC LIMIT 1', [req.params.datasetId]);
+    if (cached.rows.length) { profile = cached.rows[0].profile_data; }
+    else {
+      const data = await pool.query(`SELECT * FROM data_${req.params.datasetId} LIMIT 5000`);
+      const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+      const summary = computeFullSummary(rows);
+      const quality = getDataQuality(rows);
+      profile = { overview: { rowCount: rows.length, columnCount: Object.keys(rows[0] || {}).length }, columns: summary, quality };
+    }
+    const report = await pool.query('SELECT * FROM reports WHERE dataset_id=$1 AND created_by=$2 ORDER BY created_at DESC LIMIT 1', [req.params.datasetId, req.user.id]).catch(() => ({ rows: [] }));
+    const user = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+    const html = generateHTMLReport({ title: title || `${ds.rows[0].name} — Analytics Report`, dataset: ds.rows[0], profile, narrative: report.rows[0]?.ai_narrative, generatedAt: new Date().toISOString(), user: user.rows[0]?.name });
+    res.json({ html, title: title || ds.rows[0].name, datasetId, template, generatedAt: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/dataset/:datasetId', authenticate, async (req, res) => {
   try {
     const { title, format = 'html' } = req.body;

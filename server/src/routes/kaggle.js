@@ -114,21 +114,21 @@ router.post('/import', authenticate, async (req, res) => {
     });
     if (!rows.length) return res.status(400).json({ error: 'Dataset is empty or not CSV format' });
     const cols = Object.keys(rows[0]);
-    const schema = {};
-    cols.forEach(c => {
+    const schemaArr = cols.map(c => {
       const vals = rows.slice(0, 100).map(r => r[c]).filter(v => v !== '' && v != null);
-      const numeric = vals.every(v => !isNaN(Number(v)));
-      schema[c] = numeric ? 'numeric' : 'text';
+      const numeric = vals.length > 0 && vals.every(v => !isNaN(Number(v)));
+      return { name: c, type: numeric ? 'numeric' : 'text' };
     });
+    const schemaMap = Object.fromEntries(schemaArr.map(s => [s.name, s.type]));
     const dsName = `Kaggle: ${filesRes.data?.title || name}`;
     const dsResult = await pool.query(
-      'INSERT INTO datasets (name, source, row_count, schema, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [dsName, 'kaggle', rows.length, JSON.stringify(schema), req.user.id]
+      'INSERT INTO datasets (name, source, row_count, column_count, schema, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [dsName, 'kaggle', rows.length, cols.length, JSON.stringify(schemaArr), req.user.id]
     );
     const dsId = dsResult.rows[0].id;
     const tableName = `data_${dsId}`;
     const safeCols = cols.map(c => c.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1').toLowerCase());
-    const colDefs = safeCols.map((c, i) => `"${c}" ${schema[cols[i]] === 'numeric' ? 'NUMERIC' : 'TEXT'}`).join(', ');
+    const colDefs = safeCols.map((_, i) => `"${safeCols[i]}" ${schemaMap[cols[i]] === 'numeric' ? 'NUMERIC' : 'TEXT'}`).join(', ');
     await pool.query(`CREATE TABLE IF NOT EXISTS "${tableName}" (row_index SERIAL, ${colDefs})`);
     const chunkSize = 200;
     for (let i = 0; i < rows.length; i += chunkSize) {
@@ -136,7 +136,7 @@ router.post('/import', authenticate, async (req, res) => {
       const vals = chunk.map((row, ri) => `(${safeCols.map((_, ci) => `$${ri * safeCols.length + ci + 1}`).join(',')})`).join(',');
       const flat = chunk.flatMap(row => safeCols.map((_, ci) => {
         const v = row[cols[ci]];
-        return schema[cols[ci]] === 'numeric' ? (isNaN(Number(v)) ? null : Number(v)) : (v ?? null);
+        return schemaMap[cols[ci]] === 'numeric' ? (isNaN(Number(v)) ? null : Number(v)) : (v ?? null);
       }));
       await pool.query(`INSERT INTO "${tableName}" (${safeCols.map(c => `"${c}"`).join(',')}) VALUES ${vals}`, flat);
     }

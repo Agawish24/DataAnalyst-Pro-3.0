@@ -35,8 +35,11 @@ export default function Annotations() {
   };
 
   const loadColumns = async () => {
-    try { const r = await api.get(`/datasets/${activeDataset.id}`); setColumns(Object.keys(r.data.schema || {})); }
-    catch {}
+    try {
+      const r = await api.get(`/datasets/${activeDataset.id}`);
+      const schema = r.data.schema || [];
+      setColumns(Array.isArray(schema) ? schema.map(c => c.name) : Object.keys(schema));
+    } catch {}
   };
 
   const add = async () => {

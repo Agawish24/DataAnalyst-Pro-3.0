@@ -23,9 +23,16 @@ export default function PrescriptiveAnalytics() {
   useEffect(() => {
     if (!selectedDataset) return;
     api.get(`/datasets/${selectedDataset.id}`).then(d => {
-      const cols = Object.keys(d.data.schema || d.data.preview?.[0] || {});
+      const rawSchema = d.data.schema || [];
+      const schemaEntries = Array.isArray(rawSchema)
+        ? rawSchema.map(c => [c.name, c.type])
+        : Object.entries(rawSchema);
+      const cols = schemaEntries.map(([n]) => n);
       setColumns(cols);
-      const numCols = cols.filter(c => d.data.schema?.[c] === 'numeric' || c.match(/price|sales|revenue|profit|amount|count|value|score|rating|age|size/i));
+      const numCols = schemaEntries.filter(([n, t]) =>
+        String(t).toLowerCase().includes('numeric') || String(t).toLowerCase().includes('integer') ||
+        String(t).toLowerCase().includes('float') || n.match(/price|sales|revenue|profit|amount|count|value|score|rating|age|size/i)
+      ).map(([n]) => n);
       if (numCols[0]) setTargetCol(numCols[0]);
       setFeatureCols(numCols.slice(1, 6));
     }).catch(() => {});

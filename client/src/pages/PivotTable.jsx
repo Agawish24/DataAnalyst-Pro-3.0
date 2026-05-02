@@ -42,9 +42,12 @@ export default function PivotTable() {
   const loadColumns = async () => {
     try {
       const r = await api.get(`/datasets/${activeDataset.id}`);
-      const schema = r.data.schema || {};
-      setColumns(Object.keys(schema));
-      setNumCols(Object.keys(schema).filter(k => ['integer','numeric','float','double','decimal','number'].some(t => String(schema[k]).toLowerCase().includes(t))));
+      const raw = r.data.schema || [];
+      const entries = Array.isArray(raw)
+        ? raw.map(c => [c.name, c.type])
+        : Object.entries(raw);
+      setColumns(entries.map(([n]) => n));
+      setNumCols(entries.filter(([, t]) => ['integer','numeric','float','double','decimal','number'].some(k => String(t).toLowerCase().includes(k))).map(([n]) => n));
     } catch {}
   };
 

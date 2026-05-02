@@ -24,8 +24,21 @@ export default function Reports() {
   const [form, setForm] = useState({ name: '', dataset_id: '', report_type: 'summary', include_sections: ['overview', 'quality', 'statistics', 'correlation'] });
   const [generating, setGenerating] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [narrative, setNarrative] = useState(null);
+  const [generatingNarrative, setGeneratingNarrative] = useState(false);
 
   const SECTIONS = ['overview', 'quality', 'statistics', 'correlation', 'sample'];
+
+  const generateNarrative = async (datasetId) => {
+    if (!datasetId) return toast.error('Select a dataset first');
+    setGeneratingNarrative(true);
+    try {
+      const r = await api.post(`/narratives/${datasetId}`);
+      setNarrative(r.data);
+      toast.success('Deep narrative analysis generated');
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed to generate narrative'); }
+    finally { setGeneratingNarrative(false); }
+  };
 
   const load = async () => {
     try { setReports((await api.get('/reports')).data); } catch {}
@@ -70,10 +83,17 @@ export default function Reports() {
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#f3f4f6', marginBottom: 4 }}>Reports</h1>
           <p style={{ color: '#9ca3af', fontSize: 14 }}>Auto-generate data reports with AI-written narrative summaries</p>
         </div>
-        <button onClick={() => setShowCreate(!showCreate)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
-          <Plus size={14} /> Generate Report
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => generateNarrative(form.dataset_id || selectedDataset?.id)} disabled={generatingNarrative}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 8, color: '#34d399', cursor: generatingNarrative ? 'not-allowed' : 'pointer', opacity: generatingNarrative ? 0.7 : 1 }}>
+            {generatingNarrative ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={14} />}
+            Deep Narrative
+          </button>
+          <button onClick={() => setShowCreate(!showCreate)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+            <Plus size={14} /> Generate Report
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: selected ? '280px 1fr' : '1fr', gap: 20 }}>
@@ -145,6 +165,42 @@ export default function Reports() {
             </div>
           )}
         </div>
+
+        {/* Deep Narrative Panel */}
+        {narrative && (
+          <div style={{ background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 16, padding: 24, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ color: '#34d399', fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Sparkles size={16} /> Deep Narrative Analysis: {narrative.datasetName}
+              </div>
+              <button onClick={() => setNarrative(null)} style={{ padding: '4px 10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#6b7280', cursor: 'pointer', fontSize: 12 }}>✕ Close</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+              {[['Rows', narrative.stats?.rowCount?.toLocaleString()], ['Numeric Cols', narrative.stats?.numericColumns], ['Category Cols', narrative.stats?.categoricalColumns], ['Has Time Data', narrative.stats?.hasTimeData ? 'Yes' : 'No']].map(([l, v]) => (
+                <div key={l} style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                  <div style={{ color: '#6b7280', fontSize: 11 }}>{l}</div>
+                  <div style={{ color: '#34d399', fontWeight: 700, fontSize: 16 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {(narrative.sections || []).map(sec => (
+              <div key={sec.id} style={{ marginBottom: 14 }}>
+                <div style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{sec.title}</div>
+                {Array.isArray(sec.content) ? (
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {sec.content.map((item, i) => (
+                      <li key={i} style={{ color: '#9ca3af', fontSize: 13, lineHeight: 1.7, marginBottom: 2 }}
+                        dangerouslySetInnerHTML={{ __html: item.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#d1d5db">$1</strong>') }} />
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ color: '#9ca3af', fontSize: 13, lineHeight: 1.7, margin: 0 }}
+                    dangerouslySetInnerHTML={{ __html: sec.content.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#d1d5db">$1</strong>') }} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Report Detail */}
         {selected && (

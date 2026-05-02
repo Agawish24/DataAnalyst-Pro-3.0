@@ -28,8 +28,10 @@ const navGroups = [
       { path: '/versions', icon: GitBranch, label: 'Version Control', labelAr: 'إدارة الإصدارات' },
       { path: '/connectors', icon: Plug, label: 'DB Connectors', labelAr: 'موصلات قواعد البيانات' },
       { path: '/integrations', icon: Globe, label: 'Integrations', labelAr: 'التكاملات' },
+      { path: '/crm', icon: Building2, label: 'CRM Integration', labelAr: 'تكامل CRM' },
       { path: '/masking', icon: EyeOff, label: 'Data Masking', labelAr: 'إخفاء البيانات' },
       { path: '/lineage', icon: Network, label: 'Data Lineage', labelAr: 'سلسلة البيانات' },
+      { path: '/knowledge-graph', icon: Layers, label: 'Knowledge Graph', labelAr: 'مخطط المعرفة' },
     ]
   },
   {
@@ -53,6 +55,7 @@ const navGroups = [
       { path: '/syntax-helper', icon: Code, label: 'Syntax Helper', labelAr: 'مساعد الصياغة' },
       { path: '/analytics', icon: FlaskConical, label: 'ML Analytics', labelAr: 'التحليلات' },
       { path: '/automl', icon: Cpu, label: 'AutoML', labelAr: 'تعلم آلي تلقائي' },
+      { path: '/streaming', icon: Activity, label: 'Live Streaming', labelAr: 'البث المباشر' },
       { path: '/pivot', icon: Table2, label: 'Pivot Table', labelAr: 'جدول محوري' },
       { path: '/geo', icon: Map, label: 'Geo Maps', labelAr: 'الخرائط الجغرافية' },
     ]

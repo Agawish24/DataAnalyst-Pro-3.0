@@ -16,6 +16,24 @@ const registerEdge = async (sourceId, targetId, edgeType, metadata = {}) => {
   if (!existing.rows.length) await pool.query('INSERT INTO lineage_edges (source_id, target_id, edge_type, metadata) VALUES ($1,$2,$3,$4)', [sourceId, targetId, edgeType, JSON.stringify(metadata)]);
 };
 
+router.get('/datasets', authenticate, async (req, res) => {
+  try {
+    const datasets = await pool.query('SELECT id, name, row_count, created_at FROM datasets ORDER BY name');
+    const nodeCountsRes = await pool.query(
+      `SELECT node_id, COUNT(*) as edge_count FROM lineage_edges le
+       JOIN lineage_nodes ln ON le.source_id = ln.id
+       WHERE ln.node_type = 'dataset' GROUP BY node_id`
+    );
+    const nodeCounts = {};
+    nodeCountsRes.rows.forEach(r => { nodeCounts[r.node_id] = parseInt(r.edge_count); });
+    res.json(datasets.rows.map(d => ({
+      ...d,
+      lineageEdges: nodeCounts[String(d.id)] || 0,
+      hasLineage: (nodeCounts[String(d.id)] || 0) > 0,
+    })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:datasetId', authenticate, async (req, res) => {
   try {
     const dsId = req.params.datasetId;
@@ -67,10 +85,14 @@ router.get('/:datasetId', authenticate, async (req, res) => {
       lineage.edges.push({ source: `ds_${dsId}`, target: `recipe_${r.id}`, type: 'transformed_by' });
     });
 
-    // Column-level lineage from dataset schema
-    const schema = ds.rows[0].schema || {};
-    lineage.columns = Object.entries(schema).map(([col, type]) => ({
-      name: col, type, origin: 'source', transformations: recipes.rows.map(r => r.name),
+    // Column-level lineage from dataset schema (array format)
+    const schema = ds.rows[0].schema || [];
+    const schemaCols = Array.isArray(schema)
+      ? schema
+      : Object.entries(schema).map(([name, type]) => ({ name, type }));
+    lineage.columns = schemaCols.map(col => ({
+      name: col.name, type: col.type, origin: 'source',
+      transformations: recipes.rows.map(r => r.name),
     }));
 
     res.json(lineage);
