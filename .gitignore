@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pythonlibs/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build output
+client/dist/
+client/build/
+
+# Uploads (user data)
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+
+# Replit internals
+.replit
+replit.nix
+.breakpoints
+.cache/
+.config/
+.upm/
+.agents/
+.local/
+
+# Package locks (optional — remove these lines if you want to commit them)
+# package-lock.json
