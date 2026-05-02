@@ -1,6 +1,6 @@
-# DataAnalyst Pro
+# DataAnalyst Pro v2
 
-A full-stack data analyst web application with React frontend, Node.js/Express backend, PostgreSQL database, and a Python Flask microservice for advanced analytics.
+A full-stack enterprise data analyst web application with React frontend, Node.js/Express backend, PostgreSQL database, and a Python Flask microservice for advanced analytics.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ A full-stack data analyst web application with React frontend, Node.js/Express b
 
 ## Workflows
 
-- **Start application** — `cd client && npm run dev` — serves the React frontend on port 5000 (webview)
+- **Start application** — `cd client && npm run dev` — serves React frontend on port 5000 (webview)
 - **Backend API** — `node server/src/index.js` — Express API on port 3001
 - **Python Analytics** — `python3 python-service/app.py` — Flask ML service on port 8000
 
@@ -24,70 +24,95 @@ A full-stack data analyst web application with React frontend, Node.js/Express b
 | demo@dataanalyst.com | demo123 | admin |
 | analyst@dataanalyst.com | analyst123 | analyst |
 
-## Features
+## Full Feature Set (v2)
 
-### Phase 1: Data Import + Cleaning + SQL Editor ✅
-- Upload CSV, Excel (.xlsx/.xls), JSON (up to 50MB)
-- Data quality reports (missing values, duplicates, outliers)
-- Cleaning operations: remove duplicates, fill missing values, normalize, trim strings
-- SQL editor with `FROM dataset` alias, history, and Excel export
+### Data Layer
+- **Data Import** — CSV, Excel, JSON upload (50MB), drag-and-drop, instant preview
+- **Data Catalog** — Searchable library with tags, domains, sensitivity labels, lineage tracking
+- **Version Control** — Snapshot current state, rollback to previous versions, diff comparison
 
-### Phase 2: Visualization + Dashboards ✅
-- Interactive charts: Bar, Line, Pie, Doughnut, Scatter, Radar (Chart.js)
-- Multiple color palettes and aggregation options
-- Dashboard builder with drag-and-drop-style widgets (stat cards, charts, text, tables)
+### Processing
+- **Data Cleaning** — Remove duplicates, fill missing values, normalize, trim, outlier detection
+- **Automated Profiling** — Auto-generated summaries: distributions, correlations, quality scores
+- **Transformation Recipes** — Save/share reusable preprocessing templates, apply across datasets
+- **Data Pipelines** — ETL workflow builder with source → transform steps → destination dataset
 
-### Phase 3: AI Assistant ✅
-- Natural language → SQL using a rule-based NL engine
-- Auto-suggests visualization type based on query
-- Dataset-aware query suggestions
+### Analysis
+- **EDA** — Full statistical summaries, distribution charts, correlation heatmap
+- **Visualization** — Bar, Line, Pie, Doughnut, Scatter, Radar charts (Chart.js), palettes
+- **SQL Editor** — Query any dataset with `FROM dataset`, history, Ctrl+Enter, Excel export
+- **ML Analytics** — Regression, clustering, classification, forecasting, outlier detection (Python/scikit-learn)
 
-### Phase 4: Advanced Analytics ✅
-- Regression (Linear, Random Forest) via Python/scikit-learn
-- Clustering (KMeans, DBSCAN)
-- Classification (Random Forest, Logistic)
-- Time-series forecasting (Exponential Smoothing, ARIMA)
-- Outlier detection (Isolation Forest)
+### Intelligence
+- **AI Assistant** — Natural language → SQL → visualization (rule-based NL engine)
+- **Reports** — Auto-generated reports with AI-written narrative summaries, downloadable
+- **Dashboard Builder** — Multi-widget dashboards with stat cards, charts, tables, text
 
-### Other ✅
-- JWT authentication with role-based access (admin, analyst, viewer)
-- Multi-language support (English/Arabic) with RTL layout
+### Collaboration
+- **Comments & Annotations** — Threaded comments, column annotations, reply threads, resolve/reopen
+- **Sharing** — Grant read/edit/admin access to users by email, per resource
+- **Jobs & Alerts** — Schedule recurring analyses (cron), set SQL-based threshold alerts
+
+### Admin (admin role only)
+- **Audit Logs** — Complete user activity log, search/filter, export CSV, activity charts
+- **Role-Based Access** — Admin, Analyst, Viewer roles with protected routes
+
+### Other
+- Multi-language: English / Arabic (RTL layout)
 - Export to CSV and Excel
+- JWT authentication
 - Responsive dark-theme UI
 
 ## Database Schema
 
-- **users** — id, name, email, role, password_hash, created_at
-- **datasets** — id, name, source, schema (JSONB), row_count, uploaded_by, created_at
-- **queries** — id, dataset_id, user_id, sql_text, result (JSONB), execution_time_ms
-- **dashboards** — id, name, layout (JSONB), widgets (JSONB), created_by
-- **ai_conversations** — id, user_id, dataset_id, natural_language, generated_sql
-- **data_cleaning_jobs** — id, dataset_id, operation, parameters, result_summary
-- **data_{id}** — dynamic tables created per uploaded dataset
+| Table | Purpose |
+|-------|---------|
+| users | Auth + roles |
+| datasets | Dataset metadata |
+| data_{id} | Dynamic per-dataset data tables |
+| queries | SQL query history |
+| dashboards | Dashboard layouts + widgets |
+| ai_conversations | NL→SQL history |
+| data_cleaning_jobs | Cleaning operation log |
+| data_profiles | Cached profiling results |
+| dataset_versions | Version history snapshots |
+| snapshot_{id}_v{n} | Dynamic snapshot tables |
+| recipes | Saved transformation templates |
+| recipe_applications | Recipe usage log |
+| catalog_entries | Metadata/tags/lineage per dataset |
+| comments | Threaded comments on any resource |
+| annotations | Column/row annotations on datasets |
+| shares | Resource sharing permissions |
+| jobs | Scheduled job configs |
+| job_runs | Job execution log |
+| alerts | SQL threshold alert configs |
+| alert_triggers | Alert firing history |
+| reports | Generated reports + AI narrative |
+| audit_logs | Full user activity audit trail |
+| pipelines | ETL pipeline configs |
+| pipeline_runs | Pipeline execution log |
 
-## API Routes
+## API Routes (v2 additions)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/auth/login | Login |
-| POST | /api/auth/register | Register |
-| GET | /api/auth/me | Get current user |
-| POST | /api/datasets/upload | Upload CSV/Excel/JSON |
-| GET | /api/datasets | List datasets |
-| GET | /api/datasets/:id | Get dataset + preview |
-| GET | /api/datasets/:id/summary | Statistical summary |
-| POST | /api/cleaning/:id/apply | Apply cleaning op |
-| POST | /api/cleaning/:id/preview | Preview cleaning op |
-| GET | /api/cleaning/:id/quality | Data quality report |
-| POST | /api/queries/execute | Run SQL query |
-| GET | /api/queries/history | Query history |
-| POST | /api/ai/query | Natural language → SQL |
-| GET | /api/ai/suggestions/:id | AI query suggestions |
-| POST | /api/analytics/:id/regression | ML regression |
-| POST | /api/analytics/:id/clustering | ML clustering |
-| POST | /api/analytics/:id/classification | ML classification |
-| POST | /api/analytics/:id/forecast | Time-series forecast |
-| GET | /api/analytics/:id/outliers | Outlier detection |
-| GET | /api/export/dataset/:id/excel | Export to Excel |
-| GET | /api/export/dataset/:id/csv | Export to CSV |
-| CRUD | /api/dashboards | Dashboard management |
+| GET/POST | /api/profiling/:id | Get/generate data profile |
+| GET/POST | /api/versions/:id | List/create dataset versions |
+| POST | /api/versions/:id/rollback/:vId | Rollback to version |
+| GET | /api/versions/:id/compare/:v1/:v2 | Compare two versions |
+| CRUD | /api/recipes | Transformation recipe management |
+| POST | /api/recipes/:id/apply/:datasetId | Apply recipe to dataset |
+| CRUD | /api/pipelines | ETL pipeline management |
+| POST | /api/pipelines/:id/run | Execute pipeline |
+| GET | /api/catalog | Search data catalog |
+| PUT | /api/catalog/:datasetId | Update catalog entry |
+| GET/POST/DELETE | /api/collaboration/comments | Comment management |
+| GET/POST/DELETE | /api/collaboration/annotations | Annotation management |
+| POST | /api/collaboration/share | Share resource |
+| CRUD | /api/jobs | Scheduled job management |
+| POST | /api/jobs/:id/run | Run job immediately |
+| CRUD | /api/jobs/alerts | Alert management |
+| POST | /api/jobs/alerts/check/:id | Check all alerts |
+| POST | /api/reports/generate | Generate AI report |
+| GET | /api/audit | Audit log (admin only) |
+| GET | /api/audit/stats | Audit statistics (admin only) |

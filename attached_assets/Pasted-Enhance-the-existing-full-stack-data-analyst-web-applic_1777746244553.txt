@@ -1,0 +1,50 @@
+Enhance the existing full-stack data analyst web application into a complete enterprise-grade suite with advanced automation, scalability, and business intelligence features.
+
+Frontend:
+- Extend React/Next.js UI with modules for:
+  - Business Question Engine: input box for natural language business queries.
+  - Scenario & Simulation Modeling: interactive sliders for what-if analysis.
+  - Predictive & Prescriptive Analytics dashboards.
+  - Real-time streaming dashboards (Kafka/Spark integration).
+  - Automated narrative insights embedded in charts.
+- Expand visualization with advanced chart types (heatmaps, Monte Carlo simulation plots, forecasting curves).
+- Add collaboration features: annotations, comments, shared dashboards.
+
+Backend:
+- Node.js + Express API with PostgreSQL core, extended to support:
+  - Big Data connectors (Spark, Dask).
+  - Streaming ingestion (Kafka, AWS Kinesis).
+  - Scenario modeling and simulation endpoints.
+  - Forecasting and prescriptive analytics (ARIMA, Prophet, optimization routines).
+  - Knowledge graph/semantic layer for entity relationships (customers, products, regions).
+  - Automated insight generation (AI-generated narratives).
+  - ERP/CRM connectors (Salesforce, SAP, HubSpot).
+  - Secure API layer for external apps to query datasets.
+- Dataset governance:
+  - Continuous data quality monitoring.
+  - Alerts for anomalies or pipeline failures.
+  - Audit logs and compliance checks (GDPR/CCPA).
+
+AI Integration:
+- Natural language → SQL → visualization pipeline.
+- AI Business Question Engine: translate queries like "Why did sales drop in Q2?" into root-cause analysis workflows.
+- LangChain/LlamaIndex orchestration for multi-step workflows.
+- AutoML (PyCaret, H2O.ai) for predictive modeling.
+- AI-generated narratives for dashboards and reports.
+
+Python & R Microservices:
+- Python (Flask/FastAPI) for analytics:
+  - Pandas, scikit-learn, statsmodels, matplotlib, seaborn, Prophet.
+- R (plumber) for advanced statistical routines:
+  - ggplot2, dplyr, caret, Monte Carlo simulations.
+- Both exposed via API endpoints for seamless integration.
+
+Deployment & Scalability:
+- Containerized with Docker/Kubernetes for cloud scaling.
+- Multi-tenant architecture for different teams/clients.
+- Role-based access, encryption, audit logs.
+
+Other:
+- Export results to PDF/Excel/PowerPoint with embedded AI narratives.
+- Multi-language support (English/Arabic).
+- Modular helpers for profiling, cleaning, visualization, simulation, and reporting.

@@ -15,6 +15,15 @@ const dashboardRoutes = require('./routes/dashboards');
 const aiRoutes = require('./routes/ai');
 const analyticsRoutes = require('./routes/analytics');
 const exportRoutes = require('./routes/export');
+const { router: profilingRouter } = require('./routes/profiling');
+const versionsRouter = require('./routes/versions');
+const recipesRouter = require('./routes/recipes');
+const catalogRouter = require('./routes/catalog');
+const collaborationRouter = require('./routes/collaboration');
+const jobsRouter = require('./routes/jobs');
+const reportsRouter = require('./routes/reports');
+const auditRouter = require('./routes/audit');
+const pipelinesRouter = require('./routes/pipelines');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -27,7 +36,7 @@ app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false });
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false });
 app.use('/api', limiter);
 
 app.use('/api/auth', authRoutes);
@@ -38,8 +47,17 @@ app.use('/api/dashboards', dashboardRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/profiling', profilingRouter);
+app.use('/api/versions', versionsRouter);
+app.use('/api/recipes', recipesRouter);
+app.use('/api/catalog', catalogRouter);
+app.use('/api/collaboration', collaborationRouter);
+app.use('/api/jobs', jobsRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/audit', auditRouter);
+app.use('/api/pipelines', pipelinesRouter);
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.0.0' }));
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../client/dist')));
