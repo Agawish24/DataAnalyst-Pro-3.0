@@ -129,6 +129,20 @@ const analyzeRootCause = async (question, datasetId) => {
       recommendations.push('Use the Forecasting module to model this metric over time and detect structural breaks.');
       recommendations.push('Segment trends by category to identify if the trend is uniform or driven by one segment.');
     }
+    if (isWhatQuestion || isCompareQuestion || isGrowthQuestion) {
+      if (findings.some(f => f.type === 'correlation')) {
+        const top = findings.find(f => f.type === 'correlation');
+        recommendations.push(`"${top?.metric}" shows the strongest relationship with "${targetCol}" — prioritize this variable in your analysis.`);
+      }
+      recommendations.push(`Segment the data by each categorical dimension to identify which group drives the most variance in "${targetCol}".`);
+      recommendations.push(`Run the Prescriptive Analytics module to get AI-driven optimization recommendations for "${targetCol}".`);
+      if (targetStats?.type === 'categorical') {
+        recommendations.push(`Use the Classification ML model to predict "${targetCol}" and rank feature importance across all available columns.`);
+        recommendations.push(`Compare "${targetCol}" distributions across departments and performance bands to isolate the primary driver.`);
+      } else {
+        recommendations.push(`Apply regression analysis to quantify which features have the largest linear impact on "${targetCol}".`);
+      }
+    }
   }
 
   // Categorical breakdowns
