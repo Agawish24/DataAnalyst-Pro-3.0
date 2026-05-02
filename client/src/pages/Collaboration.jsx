@@ -36,12 +36,12 @@ export default function Collaboration() {
 
   const loadComments = async () => {
     if (!dsId) return;
-    try { setComments(await api.get(`/collaboration/comments/dataset/${dsId}`)); } catch {}
+    try { setComments((await api.get(`/collaboration/comments/dataset/${dsId}`)).data); } catch {}
   };
 
   const loadAnnotations = async () => {
     if (!dsId) return;
-    try { setAnnotations(await api.get(`/collaboration/annotations/${dsId}`)); } catch {}
+    try { setAnnotations((await api.get(`/collaboration/annotations/${dsId}`)).data); } catch {}
   };
 
   useEffect(() => { loadComments(); loadAnnotations(); }, [dsId]);

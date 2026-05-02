@@ -20,7 +20,7 @@ export default function AuditLogs() {
     setLoading(true);
     try {
       const params = new URLSearchParams(Object.entries(filters).filter(([,v]) => v !== ''));
-      const res = await api.get(`/audit?${params}`);
+      const res = (await api.get(`/audit?${params}`)).data;
       setLogs(res.logs || []);
       setTotal(res.total || 0);
     } catch (err) {
@@ -31,7 +31,7 @@ export default function AuditLogs() {
   };
 
   const loadStats = async () => {
-    try { setStats(await api.get('/audit/stats')); } catch {}
+    try { setStats((await api.get('/audit/stats')).data); } catch {}
   };
 
   useEffect(() => { loadLogs(); loadStats(); }, []);

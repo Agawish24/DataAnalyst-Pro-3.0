@@ -18,7 +18,7 @@ export default function VersionControl() {
   const load = async () => {
     if (!selectedDataset) return;
     setLoading(true);
-    try { setVersions(await api.get(`/versions/${selectedDataset.id}`)); }
+    try { setVersions((await api.get(`/versions/${selectedDataset.id}`)).data); }
     catch { toast.error('Failed to load versions'); }
     finally { setLoading(false); }
   };

@@ -28,13 +28,13 @@ export default function Pipelines() {
   const [running, setRunning] = useState({});
 
   const load = async () => {
-    try { setPipelines(await api.get('/pipelines')); } catch {}
+    try { setPipelines((await api.get('/pipelines')).data); } catch {}
   };
 
   useEffect(() => { load(); }, []);
 
   const loadRuns = async (id) => {
-    try { setRuns(r => ({ ...r, [id]: [] })); const data = await api.get(`/pipelines/${id}/runs`); setRuns(r => ({ ...r, [id]: data })); } catch {}
+    try { setRuns(r => ({ ...r, [id]: [] })); const data = (await api.get(`/pipelines/${id}/runs`)).data; setRuns(r => ({ ...r, [id]: data })); } catch {}
   };
 
   const toggle = (id) => { setExpanded(e => e === id ? null : id); if (expanded !== id) loadRuns(id); };

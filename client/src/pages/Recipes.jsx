@@ -21,7 +21,7 @@ export default function Recipes() {
   const [applyTarget, setApplyTarget] = useState('');
 
   const load = async () => {
-    try { setRecipes(await api.get('/recipes')); } catch {}
+    try { setRecipes((await api.get('/recipes')).data); } catch {}
   };
 
   useEffect(() => { load(); }, []);

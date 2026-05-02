@@ -40,7 +40,7 @@ export default function ExternalAPI() {
   const [copiedId, setCopiedId] = useState(null);
 
   const loadKeys = async () => {
-    try { setKeys(await api.get('/external-api/keys')); } catch {}
+    try { setKeys((await api.get('/external-api/keys')).data); } catch {}
   };
   useEffect(() => { loadKeys(); }, []);
 

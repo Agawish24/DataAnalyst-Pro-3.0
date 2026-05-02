@@ -65,7 +65,7 @@ export default function ScenarioModeling() {
   const [showSaveForm, setShowSaveForm] = useState(false);
 
   const load = async () => {
-    try { setScenarios(await api.get('/scenarios')); } catch {}
+    try { setScenarios((await api.get('/scenarios')).data); } catch {}
   };
   useEffect(() => { load(); }, []);
 

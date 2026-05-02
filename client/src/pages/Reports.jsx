@@ -28,7 +28,7 @@ export default function Reports() {
   const SECTIONS = ['overview', 'quality', 'statistics', 'correlation', 'sample'];
 
   const load = async () => {
-    try { setReports(await api.get('/reports')); } catch {}
+    try { setReports((await api.get('/reports')).data); } catch {}
   };
 
   useEffect(() => { load(); if (selectedDataset) setForm(f => ({...f, dataset_id: String(selectedDataset.id), name: `${selectedDataset.name} Report`})); }, [selectedDataset]);

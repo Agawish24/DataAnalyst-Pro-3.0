@@ -35,8 +35,8 @@ export default function JobsAlerts() {
   const [alertForm, setAlertForm] = useState({ name: '', dataset_id: '', condition_sql: '', threshold_value: '', comparison_operator: '>', notification_channel: 'in_app' });
   const [checking, setChecking] = useState(false);
 
-  const loadJobs = async () => { try { setJobs(await api.get('/jobs')); } catch {} };
-  const loadAlerts = async () => { try { setAlerts(await api.get('/jobs/alerts/list')); } catch {} };
+  const loadJobs = async () => { try { setJobs((await api.get('/jobs')).data); } catch {} };
+  const loadAlerts = async () => { try { setAlerts((await api.get('/jobs/alerts/list')).data); } catch {} };
 
   useEffect(() => { loadJobs(); loadAlerts(); }, []);
   useEffect(() => { if (selectedDataset) { setJobForm(f => ({...f, dataset_id: String(selectedDataset.id)})); setAlertForm(f => ({...f, dataset_id: String(selectedDataset.id)})); } }, [selectedDataset]);
