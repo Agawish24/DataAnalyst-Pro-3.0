@@ -1,4 +1,4 @@
-# DataAnalyst Pro v2
+# DataAnalyst Pro v3
 
 A full-stack enterprise data analyst web application with React frontend, Node.js/Express backend, PostgreSQL database, and a Python Flask microservice for advanced analytics.
 
@@ -24,95 +24,92 @@ A full-stack enterprise data analyst web application with React frontend, Node.j
 | demo@dataanalyst.com | demo123 | admin |
 | analyst@dataanalyst.com | analyst123 | analyst |
 
-## Full Feature Set (v2)
+## Navigation Groups (v3)
 
-### Data Layer
-- **Data Import** — CSV, Excel, JSON upload (50MB), drag-and-drop, instant preview
-- **Data Catalog** — Searchable library with tags, domains, sensitivity labels, lineage tracking
-- **Version Control** — Snapshot current state, rollback to previous versions, diff comparison
+| Group | Pages |
+|-------|-------|
+| Overview | Dashboard |
+| Data | Data Import, Data Catalog, Version Control |
+| Processing | Data Cleaning, Profiling, Recipes, Pipelines |
+| Analysis | EDA, Visualization, SQL Editor, ML Analytics |
+| Intelligence | AI Assistant, **Business Questions**, Reports, Dashboard Builder |
+| **Advanced Analytics** | **Scenario Modeling**, **Prescriptive Analytics** |
+| **Developer** | **External API** |
+| Collaboration | Comments & Sharing, Jobs & Alerts |
+| Admin | Audit Logs |
 
-### Processing
-- **Data Cleaning** — Remove duplicates, fill missing values, normalize, trim, outlier detection
-- **Automated Profiling** — Auto-generated summaries: distributions, correlations, quality scores
-- **Transformation Recipes** — Save/share reusable preprocessing templates, apply across datasets
-- **Data Pipelines** — ETL workflow builder with source → transform steps → destination dataset
+## v3 New Modules
 
-### Analysis
-- **EDA** — Full statistical summaries, distribution charts, correlation heatmap
-- **Visualization** — Bar, Line, Pie, Doughnut, Scatter, Radar charts (Chart.js), palettes
-- **SQL Editor** — Query any dataset with `FROM dataset`, history, Ctrl+Enter, Excel export
-- **ML Analytics** — Regression, clustering, classification, forecasting, outlier detection (Python/scikit-learn)
+### Business Question Engine (`/business-questions`)
+- Natural language input: "Why did sales drop in Q2?"
+- Automatic intent detection (drop/growth/anomaly/trend/comparison)
+- Root-cause analysis: correlation detection, outlier flags, distribution skew, missing data
+- Severity-ranked findings (high/medium/low)
+- AI-written narrative summary
+- Auto-generated SQL queries ready to copy/run
+- Actionable recommendations per question type
+- Dataset-aware suggested questions
+- Question history saved to PostgreSQL
 
-### Intelligence
-- **AI Assistant** — Natural language → SQL → visualization (rule-based NL engine)
-- **Reports** — Auto-generated reports with AI-written narrative summaries, downloadable
-- **Dashboard Builder** — Multi-widget dashboards with stat cards, charts, tables, text
+### Scenario & Simulation Modeling (`/scenarios`)
+- Create named scenarios with multiple variables
+- Interactive sliders for each variable (base value, uncertainty, weight, distribution)
+- Distribution types: Normal, Uniform, Triangular
+- Run what-if simulations — composite weighted impact score
+- Monte Carlo simulation (up to 50,000 iterations) via Python service
+- Full frequency histogram with P5/P95 risk zones highlighted
+- Percentile table (P5–P95)
+- Scenarios saved to PostgreSQL with last_result caching
 
-### Collaboration
-- **Comments & Annotations** — Threaded comments, column annotations, reply threads, resolve/reopen
-- **Sharing** — Grant read/edit/admin access to users by email, per resource
-- **Jobs & Alerts** — Schedule recurring analyses (cron), set SQL-based threshold alerts
+### Prescriptive Analytics (`/prescriptive`)
+- **Optimization tab**: RandomForest-powered recommendations — which variables to change and by how much to maximize/minimize a target metric
+- Feature importance bar chart
+- Current mean vs predicted optimal vs improvement %
+- Multi-select feature column picker
+- **Prophet Forecast tab**: Facebook Prophet time-series forecasting
+  - Handles seasonality (weekly + yearly), trend changes
+  - Configurable date/value columns and forecast periods
+  - Full forecast table with confidence intervals (yhat_lower/yhat_upper)
 
-### Admin (admin role only)
-- **Audit Logs** — Complete user activity log, search/filter, export CSV, activity charts
-- **Role-Based Access** — Admin, Analyst, Viewer roles with protected routes
+### External API (`/external-api`)
+- Generate API keys with `dap_` prefix (SHA-256 hashed, never stored in plaintext)
+- Per-key: name, permissions (read/write/query), optional expiry, last-used timestamp, request counter
+- One-time key reveal on creation
+- Revoke any key instantly
+- **API Documentation tab** with curl examples for all endpoints:
+  - `GET /v1/datasets` — list datasets
+  - `GET /v1/datasets/:id/data` — fetch rows (limit/offset pagination)
+  - `POST /v1/query` — run SQL against a dataset
+  - `GET /v1/profile/:id` — get cached data profile
 
-### Other
-- Multi-language: English / Arabic (RTL layout)
-- Export to CSV and Excel
-- JWT authentication
-- Responsive dark-theme UI
+## Python Service Endpoints (v3 additions)
 
-## Database Schema
+| Endpoint | Description |
+|----------|-------------|
+| POST `/monte-carlo` | Monte Carlo simulation — normal/uniform/triangular distributions, up to 50k iterations, returns histogram + percentiles |
+| POST `/prophet-forecast` | Facebook Prophet time-series forecasting with confidence intervals |
+| POST `/prescriptive` | RandomForest optimization — feature importance + recommendations |
+| POST `/root-cause` | Statistical root cause analysis — correlations, outliers, segment breakdown |
+
+## Database Tables (v3 additions)
 
 | Table | Purpose |
 |-------|---------|
-| users | Auth + roles |
-| datasets | Dataset metadata |
-| data_{id} | Dynamic per-dataset data tables |
-| queries | SQL query history |
-| dashboards | Dashboard layouts + widgets |
-| ai_conversations | NL→SQL history |
-| data_cleaning_jobs | Cleaning operation log |
-| data_profiles | Cached profiling results |
-| dataset_versions | Version history snapshots |
-| snapshot_{id}_v{n} | Dynamic snapshot tables |
-| recipes | Saved transformation templates |
-| recipe_applications | Recipe usage log |
-| catalog_entries | Metadata/tags/lineage per dataset |
-| comments | Threaded comments on any resource |
-| annotations | Column/row annotations on datasets |
-| shares | Resource sharing permissions |
-| jobs | Scheduled job configs |
-| job_runs | Job execution log |
-| alerts | SQL threshold alert configs |
-| alert_triggers | Alert firing history |
-| reports | Generated reports + AI narrative |
-| audit_logs | Full user activity audit trail |
-| pipelines | ETL pipeline configs |
-| pipeline_runs | Pipeline execution log |
+| scenarios | Scenario configs (variables, assumptions, last result) |
+| business_questions | Question history per user/dataset |
+| api_keys | Hashed API keys with permissions and usage tracking |
+| quality_checks | Continuous data quality check results |
 
-## API Routes (v2 additions)
+## Full API Route List
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET/POST | /api/profiling/:id | Get/generate data profile |
-| GET/POST | /api/versions/:id | List/create dataset versions |
-| POST | /api/versions/:id/rollback/:vId | Rollback to version |
-| GET | /api/versions/:id/compare/:v1/:v2 | Compare two versions |
-| CRUD | /api/recipes | Transformation recipe management |
-| POST | /api/recipes/:id/apply/:datasetId | Apply recipe to dataset |
-| CRUD | /api/pipelines | ETL pipeline management |
-| POST | /api/pipelines/:id/run | Execute pipeline |
-| GET | /api/catalog | Search data catalog |
-| PUT | /api/catalog/:datasetId | Update catalog entry |
-| GET/POST/DELETE | /api/collaboration/comments | Comment management |
-| GET/POST/DELETE | /api/collaboration/annotations | Annotation management |
-| POST | /api/collaboration/share | Share resource |
-| CRUD | /api/jobs | Scheduled job management |
-| POST | /api/jobs/:id/run | Run job immediately |
-| CRUD | /api/jobs/alerts | Alert management |
-| POST | /api/jobs/alerts/check/:id | Check all alerts |
-| POST | /api/reports/generate | Generate AI report |
-| GET | /api/audit | Audit log (admin only) |
-| GET | /api/audit/stats | Audit statistics (admin only) |
+### v1 (original)
+`/api/auth`, `/api/datasets`, `/api/cleaning`, `/api/queries`, `/api/dashboards`, `/api/ai`, `/api/analytics`, `/api/export`
+
+### v2
+`/api/profiling`, `/api/versions`, `/api/recipes`, `/api/catalog`, `/api/collaboration`, `/api/jobs`, `/api/reports`, `/api/audit`, `/api/pipelines`
+
+### v3 (new)
+`/api/scenarios`, `/api/business-questions`, `/api/external-api`
+
+### Analytics sub-routes (v3)
+`POST /:id/prescriptive`, `POST /:id/prophet`, `POST /:id/root-cause`

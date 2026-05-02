@@ -24,6 +24,9 @@ const jobsRouter = require('./routes/jobs');
 const reportsRouter = require('./routes/reports');
 const auditRouter = require('./routes/audit');
 const pipelinesRouter = require('./routes/pipelines');
+const scenariosRouter = require('./routes/scenarios');
+const businessQuestionsRouter = require('./routes/businessQuestions');
+const externalApiRouter = require('./routes/externalApi');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -56,6 +59,9 @@ app.use('/api/jobs', jobsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/pipelines', pipelinesRouter);
+app.use('/api/scenarios', scenariosRouter);
+app.use('/api/business-questions', businessQuestionsRouter);
+app.use('/api/external-api', externalApiRouter);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.0.0' }));
 

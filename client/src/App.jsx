@@ -22,6 +22,10 @@ import VersionControl from './pages/VersionControl';
 import Reports from './pages/Reports';
 import JobsAlerts from './pages/JobsAlerts';
 import AuditLogs from './pages/AuditLogs';
+import BusinessQuestions from './pages/BusinessQuestions';
+import ScenarioModeling from './pages/ScenarioModeling';
+import PrescriptiveAnalytics from './pages/PrescriptiveAnalytics';
+import ExternalAPI from './pages/ExternalAPI';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -66,6 +70,10 @@ const AppRoutes = () => {
       <Route path="/reports" element={wrap(Reports)} />
       <Route path="/jobs" element={wrap(JobsAlerts)} />
       <Route path="/audit" element={wrap(AuditLogs, true)} />
+      <Route path="/business-questions" element={wrap(BusinessQuestions)} />
+      <Route path="/scenarios" element={wrap(ScenarioModeling)} />
+      <Route path="/prescriptive" element={wrap(PrescriptiveAnalytics)} />
+      <Route path="/external-api" element={wrap(ExternalAPI)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );

@@ -66,4 +66,37 @@ router.get('/:datasetId/outliers', authenticate, async (req, res) => {
   }
 });
 
+router.post('/:datasetId/prescriptive', authenticate, async (req, res) => {
+  try {
+    const rows = await getDatasetRows(req.params.datasetId, 3000);
+    const response = await axios.post(`${PYTHON_SERVICE}/prescriptive`, { rows, ...req.body }, { timeout: 60000 });
+    res.json(response.data);
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
+router.post('/:datasetId/prophet', authenticate, async (req, res) => {
+  try {
+    const rows = await getDatasetRows(req.params.datasetId, 5000);
+    const response = await axios.post(`${PYTHON_SERVICE}/prophet-forecast`, { rows, ...req.body }, { timeout: 120000 });
+    res.json(response.data);
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
+router.post('/:datasetId/root-cause', authenticate, async (req, res) => {
+  try {
+    const rows = await getDatasetRows(req.params.datasetId, 5000);
+    const response = await axios.post(`${PYTHON_SERVICE}/root-cause`, { rows, ...req.body }, { timeout: 30000 });
+    res.json(response.data);
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
 module.exports = router;

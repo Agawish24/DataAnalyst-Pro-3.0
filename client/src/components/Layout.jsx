@@ -6,7 +6,7 @@ import {
   FlaskConical, LogOut, Menu, X, ChevronDown, ChevronRight,
   User, Settings, Database, Globe, Search, GitBranch,
   MessageSquare, GitMerge, ChefHat, FileText, Bell,
-  Shield, BookOpen, Sparkles, TrendingUp
+  Shield, BookOpen, Sparkles, TrendingUp, Sliders, Target, Key
 } from 'lucide-react';
 
 const navGroups = [
@@ -51,8 +51,24 @@ const navGroups = [
     labelAr: 'الذكاء',
     items: [
       { path: '/ai', icon: Bot, label: 'AI Assistant', labelAr: 'المساعد الذكي' },
+      { path: '/business-questions', icon: Sparkles, label: 'Business Questions', labelAr: 'أسئلة الأعمال' },
       { path: '/reports', icon: FileText, label: 'Reports', labelAr: 'التقارير' },
       { path: '/builder', icon: LayoutDashboard, label: 'Dashboard Builder', labelAr: 'بناء اللوحة' },
+    ]
+  },
+  {
+    label: 'Advanced Analytics',
+    labelAr: 'التحليلات المتقدمة',
+    items: [
+      { path: '/scenarios', icon: Sliders, label: 'Scenario Modeling', labelAr: 'نمذجة السيناريو' },
+      { path: '/prescriptive', icon: Target, label: 'Prescriptive Analytics', labelAr: 'التحليلات التوجيهية' },
+    ]
+  },
+  {
+    label: 'Developer',
+    labelAr: 'المطور',
+    items: [
+      { path: '/external-api', icon: Key, label: 'External API', labelAr: 'واجهة برمجية خارجية' },
     ]
   },
   {

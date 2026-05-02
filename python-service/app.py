@@ -249,5 +249,254 @@ def outliers():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/monte-carlo', methods=['POST'])
+def monte_carlo():
+    try:
+        data = request.json
+        variables = data.get('variables', [])
+        iterations = int(data.get('iterations', 10000))
+        iterations = min(iterations, 50000)
+
+        results = []
+        np.random.seed(42)
+        for _ in range(iterations):
+            trial_value = 0
+            for var in variables:
+                dist = var.get('distribution', 'normal')
+                base = float(var.get('baseValue', 1))
+                uncertainty = float(var.get('uncertainty', 0.1))
+                weight = float(var.get('weight', 1))
+                if dist == 'normal':
+                    sample = np.random.normal(base, base * uncertainty)
+                elif dist == 'uniform':
+                    sample = np.random.uniform(base * (1 - uncertainty), base * (1 + uncertainty))
+                elif dist == 'triangular':
+                    lo, hi = base * (1 - uncertainty), base * (1 + uncertainty)
+                    sample = np.random.triangular(lo, base, hi)
+                else:
+                    sample = base
+                trial_value += sample * weight
+            results.append(float(trial_value))
+
+        results_arr = np.array(results)
+        percentiles = [5, 10, 25, 50, 75, 90, 95]
+        hist_counts, hist_edges = np.histogram(results_arr, bins=50)
+
+        return jsonify({
+            'iterations': iterations,
+            'mean': float(np.mean(results_arr)),
+            'std': float(np.std(results_arr)),
+            'min': float(np.min(results_arr)),
+            'max': float(np.max(results_arr)),
+            'percentiles': {str(p): float(np.percentile(results_arr, p)) for p in percentiles},
+            'histogram': {
+                'counts': hist_counts.tolist(),
+                'edges': hist_edges.tolist(),
+            },
+            'samples': results[:500],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/prophet-forecast', methods=['POST'])
+def prophet_forecast():
+    try:
+        from prophet import Prophet
+        data = request.json
+        rows = data.get('rows', [])
+        date_col = data.get('date_col')
+        value_col = data.get('value_col')
+        periods = int(data.get('periods', 30))
+        freq = data.get('freq', 'D')
+
+        if not rows or not date_col or not value_col:
+            return jsonify({'error': 'rows, date_col, value_col required'}), 400
+
+        df = pd.DataFrame(rows)
+        df = df[[date_col, value_col]].rename(columns={date_col: 'ds', value_col: 'y'})
+        df['ds'] = pd.to_datetime(df['ds'], errors='coerce')
+        df['y'] = pd.to_numeric(df['y'], errors='coerce')
+        df = df.dropna()
+
+        if len(df) < 10:
+            return jsonify({'error': 'Need at least 10 data points for forecasting'}), 400
+
+        model = Prophet(daily_seasonality=False, weekly_seasonality=True, yearly_seasonality=True)
+        model.fit(df)
+
+        future = model.make_future_dataframe(periods=periods, freq=freq)
+        forecast = model.predict(future)
+
+        return jsonify({
+            'forecast': forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(periods + len(df)).assign(ds=lambda x: x['ds'].dt.strftime('%Y-%m-%d')).to_dict(orient='records'),
+            'historical': df.assign(ds=lambda x: x['ds'].dt.strftime('%Y-%m-%d')).to_dict(orient='records'),
+            'components': {
+                'trend': forecast[['ds', 'trend']].assign(ds=lambda x: x['ds'].dt.strftime('%Y-%m-%d')).to_dict(orient='records'),
+            },
+            'periods': periods,
+            'model': 'Prophet',
+        })
+    except ImportError:
+        return jsonify({'error': 'Prophet not installed'}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/prescriptive', methods=['POST'])
+def prescriptive():
+    try:
+        data = request.json
+        rows = data.get('rows', [])
+        target_col = data.get('target_col')
+        optimize_for = data.get('optimize_for', 'maximize')
+        feature_cols = data.get('feature_cols', [])
+
+        if not rows or not target_col:
+            return jsonify({'error': 'rows and target_col required'}), 400
+
+        df = df_from_rows(rows)
+        if target_col not in df.columns:
+            return jsonify({'error': f'Column {target_col} not found'}), 400
+
+        numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_col]
+        if not feature_cols:
+            feature_cols = numeric_cols[:8]
+
+        feature_cols = [c for c in feature_cols if c in df.columns]
+        if not feature_cols:
+            return jsonify({'error': 'No usable numeric feature columns'}), 400
+
+        df_clean = df[feature_cols + [target_col]].dropna()
+        if len(df_clean) < 10:
+            return jsonify({'error': 'Insufficient data after cleaning'}), 400
+
+        X = df_clean[feature_cols]
+        y = df_clean[target_col]
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_scaled, y)
+
+        importances = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
+
+        # Generate recommendations
+        recommendations = []
+        best_row = df_clean.loc[df_clean[target_col].idxmax() if optimize_for == 'maximize' else df_clean[target_col].idxmin()]
+        current_mean = float(y.mean())
+        current_best = float(y.max() if optimize_for == 'maximize' else y.min())
+
+        for feat in importances.head(5).index:
+            feat_importance = float(importances[feat])
+            best_val = float(best_row[feat])
+            current_val = float(df_clean[feat].mean())
+            direction = 'increase' if best_val > current_val else 'decrease'
+            pct_change = abs(best_val - current_val) / (abs(current_val) + 1e-9) * 100
+
+            recommendations.append({
+                'feature': feat,
+                'importance': round(feat_importance, 4),
+                'action': f'{direction.capitalize()} "{feat}" by ~{pct_change:.1f}%',
+                'current_avg': round(current_val, 4),
+                'optimal_value': round(best_val, 4),
+                'expected_impact': f'Potential {optimize_for} of {target_col}',
+            })
+
+        # What-if prediction
+        optimal_X = df_clean[feature_cols].copy()
+        for feat in importances.head(3).index:
+            if optimize_for == 'maximize':
+                optimal_X[feat] = df_clean[feat].quantile(0.9)
+            else:
+                optimal_X[feat] = df_clean[feat].quantile(0.1)
+
+        predicted_optimal = float(model.predict(scaler.transform(optimal_X)).mean())
+
+        return jsonify({
+            'target': target_col,
+            'optimize_for': optimize_for,
+            'current_mean': round(current_mean, 4),
+            'current_best': round(current_best, 4),
+            'predicted_optimal': round(predicted_optimal, 4),
+            'improvement_pct': round((predicted_optimal - current_mean) / (abs(current_mean) + 1e-9) * 100, 2),
+            'feature_importance': importances.round(4).to_dict(),
+            'recommendations': recommendations,
+            'model': 'RandomForest',
+            'rows_used': len(df_clean),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/root-cause', methods=['POST'])
+def root_cause():
+    try:
+        data = request.json
+        rows = data.get('rows', [])
+        target_col = data.get('target_col')
+        segment_col = data.get('segment_col')
+
+        if not rows or not target_col:
+            return jsonify({'error': 'rows and target_col required'}), 400
+
+        df = df_from_rows(rows)
+        if target_col not in df.columns:
+            return jsonify({'error': f'Column {target_col} not found'}), 400
+
+        numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_col]
+        y = pd.to_numeric(df[target_col], errors='coerce').dropna()
+
+        q1, q3 = y.quantile(0.25), y.quantile(0.75)
+        iqr = q3 - q1
+        outlier_mask = (y < q1 - 1.5 * iqr) | (y > q3 + 1.5 * iqr)
+
+        # Correlation analysis
+        correlations = {}
+        for col in numeric_cols[:10]:
+            try:
+                corr_df = df[[col, target_col]].apply(pd.to_numeric, errors='coerce').dropna()
+                if len(corr_df) > 5:
+                    r = float(corr_df.corr().iloc[0, 1])
+                    if not np.isnan(r):
+                        correlations[col] = round(r, 4)
+            except:
+                pass
+
+        sorted_corr = dict(sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True))
+
+        # Segment analysis
+        segment_analysis = {}
+        if segment_col and segment_col in df.columns:
+            for seg_val, group in df.groupby(segment_col):
+                seg_target = pd.to_numeric(group[target_col], errors='coerce').dropna()
+                if len(seg_target) > 0:
+                    segment_analysis[str(seg_val)] = {
+                        'mean': round(float(seg_target.mean()), 4),
+                        'count': len(seg_target),
+                        'pct_of_total': round(len(seg_target) / len(df) * 100, 1),
+                    }
+
+        return jsonify({
+            'target': target_col,
+            'overall_mean': round(float(y.mean()), 4),
+            'overall_std': round(float(y.std()), 4),
+            'outlier_count': int(outlier_mask.sum()),
+            'outlier_pct': round(float(outlier_mask.mean() * 100), 2),
+            'top_correlations': sorted_corr,
+            'segment_analysis': segment_analysis,
+            'distribution': {
+                'q1': round(float(q1), 4),
+                'median': round(float(y.median()), 4),
+                'q3': round(float(q3), 4),
+                'skewness': round(float(y.skew()), 4),
+                'kurtosis': round(float(y.kurt()), 4),
+            },
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)
