@@ -20,7 +20,7 @@
 
 DataAnalyst Pro consolidates the capabilities of five separate enterprise tools into one unified platform: a data warehouse explorer, a BI/visualization suite, an AutoML workbench, a real-time streaming dashboard, and a governance/compliance layer. It is built from scratch without low-code scaffolding, demonstrating full-stack proficiency across frontend, backend, ML microservices, and database design.
 
-**40+ interactive pages. 52 REST API route groups. 54 PostgreSQL tables. 10 ML endpoints.**
+**40+ interactive pages. 52 REST API route groups. 54 PostgreSQL tables. 11 ML/analytics endpoints.**
 
 ---
 
@@ -104,10 +104,11 @@ DataAnalyst Pro consolidates the capabilities of five separate enterprise tools 
 - Up to 6 stored snapshots per dataset in dedicated `snapshot_N_vM` tables
 
 **Database Connectors** (`/connectors`)
-- Connect external PostgreSQL and MySQL databases
+- Connect external PostgreSQL, MySQL, Redshift, BigQuery, Snowflake, and CSV URL sources
 - Live schema browser — list tables, inspect column definitions
 - Run arbitrary SQL against external sources and preview results in-app
 - Connection health monitoring with manual re-test
+- All connectors visible to all users (not owner-restricted); schema fetch handles unreachable hosts gracefully
 
 ---
 
@@ -325,7 +326,9 @@ DataAnalyst Pro consolidates the capabilities of five separate enterprise tools 
 - Manual trigger + test fire; active/paused toggle; full trigger history
 
 **Jobs & Scheduling** (`/jobs`)
-- Cron-style scheduled pipeline runs
+- Cron-style scheduled pipeline runs (profile, sql_query, cleaning, export types)
+- Any authenticated user can run any shared job — not restricted to job owner
+- Cleaning jobs apply duplicate-drop and configurable fill operations with before/after row counts
 - Job run history with duration, row counts, and status
 
 ---
@@ -516,6 +519,7 @@ POST /api/audit/log                # { action, resource_type, resource_id, detai
 | `POST /prescriptive` | RandomForest optimization — ranked action recommendations |
 | `POST /root-cause` | Statistical root cause — feature contribution scores |
 | `POST /automl` | Multi-model AutoML — cross-val scores, best model, feature importance |
+| `POST /pivot-compute` | Server-side pivot aggregation — sum/mean/count/min/max/median by group fields |
 
 ---
 
