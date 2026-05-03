@@ -4,6 +4,27 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// GET /activity — recent collaboration activity across all datasets
+router.get('/activity', authenticate, async (req, res) => {
+  try {
+    const comments = await pool.query(
+      `SELECT c.id, c.content, c.created_at, c.target_type, c.target_id,
+              u.name as user_name, u.role as user_role, 'comment' as activity_type
+       FROM comments c LEFT JOIN users u ON c.user_id = u.id
+       ORDER BY c.created_at DESC LIMIT 20`
+    );
+    const shares = await pool.query(
+      `SELECT id, resource_type, resource_id, shared_with_email, permission_level,
+              created_at, 'share' as activity_type
+       FROM shared_resources ORDER BY created_at DESC LIMIT 10`
+    ).catch(() => ({ rows: [] }));
+    const activity = [...comments.rows, ...shares.rows]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 30);
+    res.json(activity);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Alias: GET /:datasetId/comments → GET /comments/dataset/:datasetId
 router.get('/:datasetId/comments', authenticate, async (req, res) => {
   try {

@@ -15,6 +15,15 @@ const listLayers = async (req, res) => {
 router.get('/', authenticate, listLayers);
 router.get('/layers', authenticate, listLayers);
 
+// GET /layers/:id — single layer (frontend calls /api/geo/layers/:id)
+router.get('/layers/:id', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT gl.*, d.name as dataset_name FROM geo_layers gl LEFT JOIN datasets d ON gl.dataset_id=d.id WHERE gl.id=$1', [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Layer not found' });
+    res.json(r.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // On-demand GeoJSON generation from body params (no saved layer needed)
 router.post('/geojson', authenticate, async (req, res) => {
   try {
@@ -40,6 +49,15 @@ router.post('/', authenticate, async (req, res) => {
     if (!name || !dataset_id || !lat_col || !lng_col) return res.status(400).json({ error: 'name, dataset_id, lat_col, lng_col required' });
     const r = await pool.query('INSERT INTO geo_layers (name, dataset_id, lat_col, lng_col, value_col, layer_type, style_config, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [name, dataset_id, lat_col, lng_col, value_col || null, layer_type, JSON.stringify(style_config), req.user.id]);
     res.status(201).json(r.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET a single layer by id
+router.get('/:id', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT gl.*, d.name as dataset_name FROM geo_layers gl LEFT JOIN datasets d ON gl.dataset_id=d.id WHERE gl.id=$1', [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Layer not found' });
+    res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

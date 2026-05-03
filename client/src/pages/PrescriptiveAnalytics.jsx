@@ -29,9 +29,19 @@ export default function PrescriptiveAnalytics() {
         : Object.entries(rawSchema);
       const cols = schemaEntries.map(([n]) => n);
       setColumns(cols);
+
+      // Detect date columns by name pattern or type
+      const dateCols = schemaEntries.filter(([n, t]) =>
+        String(t).toLowerCase().includes('date') || String(t).toLowerCase().includes('time') ||
+        String(t).toLowerCase().includes('timestamp') ||
+        /date|time|day|month|year|period|week|quarter/i.test(n)
+      ).map(([n]) => n);
+      if (dateCols[0]) setDateCol(dateCols[0]);
+
       const numCols = schemaEntries.filter(([n, t]) =>
         String(t).toLowerCase().includes('numeric') || String(t).toLowerCase().includes('integer') ||
-        String(t).toLowerCase().includes('float') || n.match(/price|sales|revenue|profit|amount|count|value|score|rating|age|size/i)
+        String(t).toLowerCase().includes('float') || String(t).toLowerCase().includes('double') ||
+        /price|sales|revenue|profit|amount|count|value|score|rating|age|size|spend|tickets|logins|features|nps|tenure/i.test(n)
       ).map(([n]) => n);
       if (numCols[0]) setTargetCol(numCols[0]);
       setFeatureCols(numCols.slice(1, 6));
@@ -238,16 +248,38 @@ export default function PrescriptiveAnalytics() {
             <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 20 }}>
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
                 <h3 style={{ color: '#f3f4f6', fontWeight: 600, marginBottom: 16 }}>Prophet Configuration</h3>
-                {[['Date Column', dateCol, setDateCol], ['Value Column', targetCol, setTargetCol]].map(([label, val, setter]) => (
-                  <div key={label} style={{ marginBottom: 14 }}>
-                    <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>{label}</label>
-                    <select value={val} onChange={e => setter(e.target.value)}
-                      style={{ width: '100%', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f3f4f6', fontSize: 14 }}>
-                      <option value="">— Select —</option>
-                      {columns.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                ))}
+
+                {/* Date column — only date-like columns */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    Date Column <span style={{ color: '#4b5563' }}>(must contain actual dates)</span>
+                  </label>
+                  <select value={dateCol} onChange={e => setDateCol(e.target.value)}
+                    style={{ width: '100%', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: `1px solid ${dateCol ? 'rgba(99,102,241,0.4)' : 'rgba(239,68,68,0.4)'}`, borderRadius: 8, color: '#f3f4f6', fontSize: 14 }}>
+                    <option value="">— Select date column —</option>
+                    {columns.filter(c => /date|time|day|month|year|period|week|quarter/i.test(c) || c === dateCol).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    {/* Fallback: show all if no date-like columns detected */}
+                    {columns.filter(c => /date|time|day|month|year|period|week|quarter/i.test(c)).length === 0 &&
+                      columns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {dateCol && !/date|time|day|month|year|period|week|quarter/i.test(dateCol) && (
+                    <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 4 }}>
+                      ⚠ "{dateCol}" may not be a date column — Prophet needs parseable dates (e.g. 2024-01-15)
+                    </div>
+                  )}
+                </div>
+
+                {/* Value column — only numeric columns */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Value Column <span style={{ color: '#4b5563' }}>(numeric)</span></label>
+                  <select value={targetCol} onChange={e => setTargetCol(e.target.value)}
+                    style={{ width: '100%', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f3f4f6', fontSize: 14 }}>
+                    <option value="">— Select value column —</option>
+                    {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Forecast Periods</label>
                   <input type="number" value={forecastPeriods} onChange={e => setForecastPeriods(parseInt(e.target.value))} min={7} max={365}

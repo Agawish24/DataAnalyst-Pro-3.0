@@ -16,6 +16,29 @@ const registerEdge = async (sourceId, targetId, edgeType, metadata = {}) => {
   if (!existing.rows.length) await pool.query('INSERT INTO lineage_edges (source_id, target_id, edge_type, metadata) VALUES ($1,$2,$3,$4)', [sourceId, targetId, edgeType, JSON.stringify(metadata)]);
 };
 
+// /nodes and /edges must be BEFORE /:datasetId to avoid wildcard swallowing them
+router.get('/nodes', authenticate, async (req, res) => {
+  try {
+    const nodes = await pool.query('SELECT * FROM lineage_nodes ORDER BY created_at');
+    const edges = await pool.query('SELECT * FROM lineage_edges');
+    res.json({ nodes: nodes.rows, edges: edges.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/edges', authenticate, async (req, res) => {
+  try {
+    const edges = await pool.query(
+      `SELECT le.*, sn.node_name AS source_name, sn.node_type AS source_type,
+              tn.node_name AS target_name, tn.node_type AS target_type
+       FROM lineage_edges le
+       JOIN lineage_nodes sn ON le.source_id = sn.id
+       JOIN lineage_nodes tn ON le.target_id = tn.id
+       ORDER BY le.id`
+    );
+    res.json(edges.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/', authenticate, async (req, res) => {
   try {
     const datasets = await pool.query('SELECT id, name, row_count, created_at FROM datasets ORDER BY name');

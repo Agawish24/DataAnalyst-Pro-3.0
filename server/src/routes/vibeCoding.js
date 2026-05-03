@@ -244,4 +244,13 @@ router.get('/history', authenticate, async (req, res) => {
   res.json(r.rows);
 });
 
+// Alias /sessions → /history
+router.get('/sessions', authenticate, async (req, res) => {
+  const r = await pool.query(
+    'SELECT * FROM vibe_coding_sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30',
+    [req.user.id]
+  ).catch(() => ({ rows: [] }));
+  res.json(r.rows);
+});
+
 module.exports = router;

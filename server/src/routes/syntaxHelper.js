@@ -1892,6 +1892,14 @@ router.get('/history', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Alias /sessions → /history (used by some frontend calls)
+router.get('/sessions', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM syntax_sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20', [req.user.id]);
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const SQL_TEMPLATES = [
   { name: 'Basic SELECT', code: 'SELECT column1, column2\nFROM table_name\nWHERE condition = true\nORDER BY column1 ASC\nLIMIT 100;' },
   { name: 'Aggregation with GROUP BY', code: 'SELECT category, COUNT(*) AS count, SUM(value) AS total, AVG(value) AS avg_value\nFROM table_name\nGROUP BY category\nHAVING COUNT(*) > 5\nORDER BY total DESC;' },

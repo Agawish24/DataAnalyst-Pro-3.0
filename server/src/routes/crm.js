@@ -13,6 +13,27 @@ const getCreds = async (userId, provider) => {
 
 const hubHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+// GET /connections — list all CRM connections for the user
+router.get('/connections', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, provider, created_at,
+              CASE WHEN credentials IS NOT NULL THEN true ELSE false END as connected
+       FROM crm_connections WHERE user_id=$1 ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    // Return status for all known providers even if not connected
+    const providers = ['hubspot', 'salesforce', 'zoho'];
+    const connected = new Map(r.rows.map(row => [row.provider, row]));
+    const result = providers.map(p => ({
+      provider: p,
+      connected: connected.has(p),
+      connectedAt: connected.get(p)?.created_at || null,
+    }));
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/contacts', authenticate, async (req, res) => {
   try {
     const r = await pool.query(

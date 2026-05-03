@@ -134,6 +134,7 @@ const buildGraph = async (req, res) => {
 
 router.get('/', authenticate, buildGraph);
 router.get('/analyze', authenticate, buildGraph);
+router.get('/nodes', authenticate, buildGraph);  // alias used by KnowledgeGraph.jsx
 
 // Detailed relationship between two datasets
 router.get('/relationships/:id1/:id2', authenticate, async (req, res) => {

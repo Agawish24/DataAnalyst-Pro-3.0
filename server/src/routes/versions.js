@@ -4,6 +4,20 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Root GET — list all versions across datasets (for VersionControl page overview)
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT v.*, u.name as creator_name, d.name as dataset_name
+       FROM dataset_versions v
+       LEFT JOIN users u ON v.created_by = u.id
+       LEFT JOIN datasets d ON v.dataset_id = d.id
+       ORDER BY v.created_at DESC LIMIT 50`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Create a snapshot (version) of a dataset
 router.post('/:datasetId/snapshot', authenticate, async (req, res) => {
   try {

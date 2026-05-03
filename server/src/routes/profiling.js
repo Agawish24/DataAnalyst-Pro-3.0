@@ -6,6 +6,18 @@ const { getDataQuality } = require('../helpers/dataClean');
 
 const router = express.Router();
 
+// Root GET — list saved profiles (data_profiles uses generated_at, not created_at)
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT dp.id, dp.dataset_id, dp.generated_at as created_at, d.name as dataset_name, d.row_count
+       FROM data_profiles dp LEFT JOIN datasets d ON dp.dataset_id = d.id
+       ORDER BY dp.generated_at DESC LIMIT 20`
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const generateProfile = async (datasetId) => {
   const data = await pool.query(`SELECT * FROM data_${datasetId} LIMIT 5000`);
   const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
