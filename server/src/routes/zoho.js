@@ -7,7 +7,8 @@ const router = express.Router();
 
 const CLIENT_ID     = process.env.ZOHO_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
-const SCOPES        = 'ZohoCRM.modules.READ,ZohoCRM.modules.WRITE,ZohoCRM.contacts.READ,ZohoCRM.leads.READ,ZohoCRM.deals.READ';
+// Use standard Zoho scopes — check your app's authorized scopes in Zoho console
+const SCOPES        = 'ZohoCRM.modules.ALL,ZohoCRM.settings.ALL';
 
 // ── Ensure zoho_tokens table exists ────────────────────────────────────────
 pool.query(`
