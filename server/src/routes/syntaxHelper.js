@@ -1609,6 +1609,50 @@ const checkRLines = (lines) => {
           'Add the missing closing parenthesis');
       }
     }
+
+    // ── 34. Assignment to reserved constants ──────────────────────────────────
+    {
+      const RESERVED = /^(NA|TRUE|FALSE|NULL|Inf|NaN|T|F|NA_integer_|NA_real_|NA_complex_|NA_character_)\s*(<-|=(?!=))/;
+      if (RESERVED.test(trimmed)) {
+        const name = trimmed.match(RESERVED)[1];
+        push('error', lineNum,
+          `Line ${lineNum}: "${name}" is a reserved constant and cannot be assigned to — this will cause unexpected behaviour`,
+          `Use a different variable name instead of "${name}"`);
+      }
+    }
+
+    // ── 35. Empty function body ───────────────────────────────────────────────
+    // Single-line: function(x) { } or function(x) {}
+    if (/\bfunction\s*\([^)]*\)\s*\{\s*\}/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Empty function body — function returns NULL by default; add a return value or body`,
+        'Add a body: function(x) { return(x) }');
+    }
+    // Multi-line: check if this is a function open-brace line and the next non-empty lines are only } 
+    if (/\bfunction\s*\([^)]*\)\s*\{/.test(trimmed) && trimmed.endsWith('{')) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j < lines.length && /^\s*\}\s*$/.test(lines[j])) {
+        push('warning', lineNum,
+          `Line ${lineNum}: Empty function body — function returns NULL; add a return value or body`,
+          'Add a return statement: function(args) { return(result) }');
+      }
+    }
+
+    // ── 36. = instead of == inside if/while conditions ────────────────────────
+    // Detects: if(x = y) or while(a = b) — assignment instead of comparison
+    {
+      const condMatch = trimmed.match(/^(if|while)\s*\((.+)\)/);
+      if (condMatch) {
+        const cond = condMatch[2];
+        // Assignment = that is not ==, !=, <=, >= and not a known named argument like na.rm=
+        if (/[^=!<>]=(?!=)/.test(cond) && !/\b(na\.rm|method|lower\.tail|alternative|paired|correct)\s*=/.test(cond)) {
+          push('error', lineNum,
+            `Line ${lineNum}: Possible assignment (=) used instead of equality (==) inside ${condMatch[1]}() condition`,
+            `Change = to == for comparison: ${condMatch[1]}(x == y)`);
+        }
+      }
+    }
   });
 
   // Unbalanced braces (whole-file)
@@ -1691,6 +1735,15 @@ const fixRCode = (code) => {
     line = line.replace(/^(\s*)(if|while)\s+([^({\n].+?)(?::)?\s*$/, (m, ind, kw, cond) => {
       const c = cond.trim().replace(/:$/, '');
       return `${ind}${kw} (${c}) {`;
+    });
+
+    // = instead of == inside if/while condition: if(x = 5) → if(x == 5)
+    line = line.replace(/^(\s*(?:if|while)\s*\()([^)]+)(\)\s*)/, (m, open, cond, close) => {
+      if (!/\b(na\.rm|method|lower\.tail|alternative|paired|correct)\s*=/.test(cond)) {
+        const fixed2 = cond.replace(/([^=!<>])=(?!=)/g, '$1==');
+        return open + fixed2 + close;
+      }
+      return m;
     });
 
     // elif → } else if (...)
