@@ -134,10 +134,11 @@ const checkSQLLines = (lines) => {
 
     // ── LIKE with unquoted pattern: WHERE name LIKE A%
     if (/\bLIKE\s+[A-Za-z0-9_]/i.test(stripped) && !/\bLIKE\s+['"$?%]/i.test(stripped)) {
+      const rawPat = ((stripped.match(/\bLIKE\s+(\S+)/i) || [])[1] || 'A%').replace(/[;,)\s]+$/, '');
       errors.push({
         type: 'error', line: lineNum, language: 'sql',
-        message: `Line ${lineNum}: LIKE pattern must be a quoted string — LIKE 'A%', not LIKE A%`,
-        fix: "Wrap the pattern in single quotes: LIKE 'A%'",
+        message: `Line ${lineNum}: SyntaxError — LIKE pattern "${rawPat}" must be a quoted string; unquoted patterns are not valid SQL — use LIKE '${rawPat}'`,
+        fix: `Wrap the pattern in single quotes: LIKE '${rawPat}'`,
       });
     }
 
@@ -357,6 +358,20 @@ const checkSQLLines = (lines) => {
       }
     }
 
+    // ── ALTER TABLE RENAME missing COLUMN keyword
+    // Valid:  ALTER TABLE t RENAME COLUMN old TO new   (rename a column)
+    // Valid:  ALTER TABLE t RENAME TO new_name          (rename the table itself)
+    // Error:  ALTER TABLE t RENAME old TO new           (missing COLUMN)
+    if (/\bALTER\s+TABLE\s+\w+\s+RENAME\b/i.test(stripped)) {
+      if (!/\bALTER\s+TABLE\s+\w+\s+RENAME\s+(COLUMN\b|TO\b)/i.test(stripped)) {
+        errors.push({
+          type: 'error', line: lineNum, language: 'sql',
+          message: `Line ${lineNum}: ALTER TABLE RENAME missing COLUMN keyword — use "ALTER TABLE t RENAME COLUMN old_name TO new_name" to rename a column`,
+          fix: 'Add COLUMN: ALTER TABLE tablename RENAME COLUMN old_name TO new_name',
+        });
+      }
+    }
+
     // ── CREATE SCHEMA with no name: CREATE SCHEMA;
     if (/\bCREATE\s+SCHEMA\s*;/i.test(stripped)) {
       errors.push({
@@ -413,6 +428,15 @@ const checkSQLLines = (lines) => {
           fix: 'Add VALUES before the data parenthesis',
         });
       }
+    }
+
+    // ── Extra closing paren in INSERT column list: INSERT INTO t (a, b)) VALUES ...
+    if (/\bINSERT\s+INTO\s+\w+\s*\([^)]+\)\s*\)/i.test(stripped)) {
+      errors.push({
+        type: 'error', line: lineNum, language: 'sql',
+        message: `Line ${lineNum}: Extra closing parenthesis ")" after INSERT column list — column list should be "(col1, col2)" not "(col1, col2))"`,
+        fix: 'Remove the extra ")": INSERT INTO tablename (col1, col2) VALUES (...)',
+      });
     }
 
     // ── CREATE FUNCTION missing RETURNS
@@ -537,10 +561,46 @@ const checkSQLStatements = (code) => {
   const errors = [];
   const statements = splitIntoStatements(code);
 
+  // ── Pre-pass: extract column names from CREATE TABLE statements for column-ref validation
+  const tableSchemas = {}; // tableName (lower) → Set<colName (lower)>
+  const skipColKw = new Set(['primary','foreign','unique','check','constraint','index','key']);
+  const ctRe = /CREATE\s+(?:TEMP\w*\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]+?)\)\s*;/gi;
+  let ctm;
+  while ((ctm = ctRe.exec(code)) !== null) {
+    const tbl = ctm[1].toLowerCase();
+    const body = ctm[2];
+    const cols = new Set();
+    body.split('\n').forEach(bl => {
+      const t = bl.trim().replace(/,\s*$/, '');
+      const colMatch = t.match(/^(\w+)\s+\w/);
+      if (colMatch) {
+        const col = colMatch[1].toLowerCase();
+        if (!skipColKw.has(col)) cols.add(col);
+      }
+    });
+    if (cols.size > 0) tableSchemas[tbl] = cols;
+  }
+
   for (let si = 0; si < statements.length; si++) {
     const { stmt, lineStart } = statements[si];
     // Always work on comment-stripped text so keywords in comments don't confuse checks
     const clean = stripSQLComments(stmt);
+
+    // ── Invalid column reference in WHERE clause (validated against CREATE TABLE schema)
+    // Covers: DELETE FROM t WHERE col = val  /  UPDATE t SET ... WHERE col = val
+    const whereColCheck = clean.match(/\b(?:DELETE\s+FROM|UPDATE)\s+(\w+)\b[\s\S]*?\bWHERE\s+(\w+)\s*[=<>!]/i);
+    if (whereColCheck) {
+      const tblName = whereColCheck[1].toLowerCase();
+      const colName = whereColCheck[2].toLowerCase();
+      const knownCols = tableSchemas[tblName];
+      if (knownCols && !knownCols.has(colName)) {
+        errors.push({
+          type: 'error', line: lineStart, language: 'sql',
+          message: `Line ~${lineStart}: Column "${colName}" does not exist in table "${whereColCheck[1]}" — known columns: ${[...knownCols].join(', ')}`,
+          fix: `Use a valid column from "${whereColCheck[1]}": ${[...knownCols].join(', ')}`,
+        });
+      }
+    }
 
     // ── UNION column count mismatch
     if (/\bUNION\b/i.test(clean)) {
