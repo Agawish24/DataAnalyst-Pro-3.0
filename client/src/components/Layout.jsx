@@ -8,7 +8,7 @@ import {
   MessageSquare, GitMerge, ChefHat, FileText, Bell,
   Shield, BookOpen, Sparkles, TrendingUp, Sliders, Target, Key,
   Code, Languages, Plug, Building2, EyeOff, Webhook, Network,
-  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity, Zap
+  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity, Zap, Crown
 } from 'lucide-react';
 
 const navGroups = [
@@ -200,9 +200,18 @@ export default function Layout({ children }) {
             </button>
             {profileOpen && sidebarOpen && (
               <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 6, marginBottom: 4, zIndex: 50 }}>
+                <Link to="/account" onClick={() => setProfileOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: '#9ca3af', textDecoration: 'none', borderRadius: 6, fontSize: 13 }}>
+                  <User size={13} /> Account Settings
+                </Link>
                 <Link to="/2fa" onClick={() => setProfileOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: '#9ca3af', textDecoration: 'none', borderRadius: 6, fontSize: 13 }}>
                   <Lock size={13} /> Security (2FA)
                 </Link>
+                {user?.role === 'admin' && (
+                  <Link to="/audit" onClick={() => setProfileOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', color: '#fbbf24', textDecoration: 'none', borderRadius: 6, fontSize: 13 }}>
+                    <Crown size={13} /> Admin Panel
+                  </Link>
+                )}
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
                 <button onClick={handleLogout} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', borderRadius: 6, fontSize: 13 }}>
                   <LogOut size={13} /> Sign Out
                 </button>

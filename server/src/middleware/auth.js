@@ -12,7 +12,10 @@ const authenticate = async (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET);
-    const result = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [decoded.userId]);
+    const result = await pool.query(
+      'SELECT id, name, email, role, bio, avatar_color, email_verified FROM users WHERE id = $1',
+      [decoded.userId]
+    );
     if (result.rows.length === 0) return res.status(401).json({ error: 'User not found' });
     req.user = result.rows[0];
     next();
