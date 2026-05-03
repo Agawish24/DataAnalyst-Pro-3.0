@@ -1914,21 +1914,44 @@ const generateRSuggestions = (code) => {
 };
 
 // ── Groq AI fix suggestion ────────────────────────────────────────────────────
+const extractCodeFromResponse = (text, language) => {
+  if (!text) return null;
+
+  // 1. Prefer a fully-closed fenced block (```lang ... ```)
+  const strict = text.match(/```[\w]*\n?([\s\S]*?)```/);
+  if (strict) return strict[1].trim();
+
+  // 2. Truncated response — opening fence present but no closing fence
+  //    (finish_reason=length, model ran out of tokens mid-output)
+  const openFence = text.match(/```[\w]*\n?([\s\S]+)/);
+  if (openFence) return openFence[1].trim();
+
+  // 3. No fences at all — model returned raw code (common for short fixes)
+  //    Accept only if it looks like actual code (contains SQL/Python keywords)
+  const codeKeywords = { sql: /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|FROM|WHERE)\b/i, python: /\b(import|def|class|return|for|if|print)\b/, r: /\b(library|function|data\.frame|read_csv|ggplot)\b/ };
+  const kw = codeKeywords[language] || codeKeywords.sql;
+  if (kw.test(text) && text.split('\n').length > 1) return text.trim();
+
+  return null;
+};
+
 const groqAIFix = (code, language, errors) => new Promise((resolve) => {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return resolve(null);
 
-  const errorSummary = errors.slice(0, 10).map(e => `- ${e.message}`).join('\n');
-  const prompt = `You are a ${language.toUpperCase()} syntax expert. The following code has these detected errors:\n${errorSummary}\n\nCode:\n\`\`\`${language}\n${code.slice(0, 3000)}\n\`\`\`\n\nProvide a corrected version of the entire code. Reply with ONLY the fixed code inside a single \`\`\`${language} ... \`\`\` block, no explanation.`;
+  // For very large files, send a condensed version with just the erroneous sections
+  const codeToSend = code.length > 4000 ? code.slice(0, 4000) + '\n-- [truncated for brevity]' : code;
+  const errorSummary = errors.slice(0, 12).map(e => `- ${e.message}`).join('\n');
+  const prompt = `You are a ${language.toUpperCase()} syntax expert. Fix all errors in the code below.\n\nDetected errors:\n${errorSummary}\n\nCode:\n\`\`\`${language}\n${codeToSend}\n\`\`\`\n\nOutput ONLY the corrected code inside one \`\`\`${language} ... \`\`\` block. No explanations, no comments about what changed.`;
 
   const body = JSON.stringify({
     model: 'llama-3.1-8b-instant',
     messages: [
-      { role: 'system', content: 'You are a precise code syntax fixer. Output only the corrected code in a code block.' },
+      { role: 'system', content: `You are a precise ${language.toUpperCase()} code fixer. Always wrap your output in a single fenced code block. Never add explanations.` },
       { role: 'user', content: prompt },
     ],
-    max_tokens: 2048,
-    temperature: 0.1,
+    max_tokens: 4096,
+    temperature: 0.05,
   });
 
   const options = {
@@ -1948,14 +1971,14 @@ const groqAIFix = (code, language, errors) => new Promise((resolve) => {
     res.on('end', () => {
       try {
         const json = JSON.parse(data);
+        if (json.error) { resolve(null); return; }
         const text = json.choices?.[0]?.message?.content || '';
-        const match = text.match(/```[\w]*\n?([\s\S]*?)```/);
-        resolve(match ? match[1].trim() : null);
+        resolve(extractCodeFromResponse(text, language));
       } catch { resolve(null); }
     });
   });
   req.on('error', () => resolve(null));
-  req.setTimeout(20000, () => { req.destroy(); resolve(null); });
+  req.setTimeout(30000, () => { req.destroy(); resolve(null); });
   req.write(body);
   req.end();
 });
