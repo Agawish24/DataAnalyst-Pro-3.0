@@ -707,5 +707,59 @@ def geo_cluster():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/pivot-compute', methods=['POST'])
+def pivot_compute():
+    try:
+        body = request.get_json()
+        data = body.get('data', [])
+        row_fields = body.get('rows', [])
+        col_fields = body.get('cols', [])
+        value_field = body.get('value')
+        agg = body.get('agg', 'sum')
+
+        if not data or not value_field:
+            return jsonify({'error': 'data and value field required'}), 400
+
+        df = df_from_rows(data)
+        if value_field not in df.columns:
+            return jsonify({'error': f'Column {value_field} not found'}), 400
+
+        group_fields = row_fields + col_fields
+        if not group_fields:
+            group_fields = [df.columns[0]]
+
+        valid_cols = [c for c in group_fields if c in df.columns]
+        if not valid_cols:
+            return jsonify({'error': 'No valid grouping columns found'}), 400
+
+        agg_map = {'sum': 'sum', 'mean': 'mean', 'count': 'count', 'min': 'min', 'max': 'max', 'median': 'median'}
+        agg_fn = agg_map.get(agg, 'sum')
+
+        grouped = df.groupby(valid_cols)[value_field].agg(agg_fn).reset_index()
+
+        result_rows = []
+        for _, row in grouped.iterrows():
+            r = {}
+            for c in valid_cols:
+                val = row[c]
+                r[c] = val if not (hasattr(val, 'item') and callable(val.item)) else val.item()
+            val = row[value_field]
+            r[value_field] = round(float(val), 4) if not np.isnan(float(val)) else 0
+            result_rows.append(r)
+
+        total = float(df[value_field].agg(agg_fn)) if agg_fn != 'count' else len(df)
+
+        return jsonify({
+            'rows': result_rows,
+            'total': round(total, 4),
+            'groupBy': valid_cols,
+            'valueField': value_field,
+            'aggregation': agg,
+            'rowCount': len(result_rows)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)

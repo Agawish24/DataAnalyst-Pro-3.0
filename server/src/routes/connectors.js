@@ -142,7 +142,7 @@ const queryConnector = async (connector, sql) => {
 
 router.get('/', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT id, name, type, status, last_tested, created_at, created_by FROM connectors WHERE created_by=$1 ORDER BY created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT id, name, type, status, last_tested, created_at, created_by FROM connectors ORDER BY created_at DESC');
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -165,7 +165,7 @@ router.post('/', authenticate, async (req, res) => {
 
 router.post('/:id/test', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM connectors WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const r = await pool.query('SELECT * FROM connectors WHERE id=$1', [req.params.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Connector not found' });
     const testResult = await testConnection(r.rows[0].type, r.rows[0].config);
     await pool.query('UPDATE connectors SET status=$1, last_tested=NOW() WHERE id=$2', [testResult.ok ? 'active' : 'error', req.params.id]);
@@ -186,7 +186,7 @@ router.post('/:id/query', authenticate, async (req, res) => {
 
 router.get('/:id/schema', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM connectors WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const r = await pool.query('SELECT * FROM connectors WHERE id=$1', [req.params.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Connector not found' });
     const c = r.rows[0];
     let schema = [];
@@ -233,7 +233,12 @@ router.get('/:id/schema', authenticate, async (req, res) => {
         columns: schema.filter(s => s.table_name === t).map(s => ({ name: s.column_name, type: s.data_type }))
       }))
     });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    // Connection errors (ENOTFOUND, ECONNREFUSED, timeout) return empty schema rather than 500
+    const connErr = err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT' || err.message?.includes('timeout');
+    if (connErr) return res.json({ connector: 'Unknown', tables: [], error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.delete('/:id', authenticate, async (req, res) => {
