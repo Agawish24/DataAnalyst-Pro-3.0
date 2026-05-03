@@ -960,7 +960,7 @@ const checkPythonLines = (lines) => {
 
 // ── Python auto-fixer ─────────────────────────────────────────────────────────
 const fixPythonCode = (code) => {
-  const lines = code.split('\n');
+  const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const fixed = lines.map(raw => {
     let line = raw;
     const trimmed = raw.trim();
@@ -1001,6 +1001,50 @@ const fixPythonCode = (code) => {
 
     // while/if x = y → while/if x == y
     line = line.replace(/^(\s*(?:while|if|elif)\s+\w+)\s*=\s*(\w)/, '$1 == $2');
+
+    // Missing 'as' in with statement: with open(...) f: → with open(...) as f:
+    line = line.replace(/^(\s*with\s+.+\))\s+(\w+)\s*:/, '$1 as $2:');
+
+    // lambda missing colon: lambda x expr → lambda x: expr
+    line = line.replace(/\blambda\s+([^:,\n]+?)\s+([^:\s].*)$/, (m, params, body) => {
+      if (params.includes(':')) return m;
+      return `lambda ${params.trim()}: ${body}`;
+    });
+
+    // f-string expression closed with ) instead of }: f"Hello {name)" → f"Hello {name}"
+    line = line.replace(/f(["'])([^"']*\{[^}]*)\)/g, 'f$1$2}');
+
+    // Dict literal missing colon between key and value: {"x" 1} → {"x": 1}
+    line = line.replace(/([{,])\s*(["'][^"']*["'])\s+([^:,}\s])/g, '$1 $2: $3');
+
+    // Unclosed bracket/paren/brace on simple assignment: t = (1,2,3 → t = (1,2,3)
+    if (/^\s*\w+\s*=\s*[(\[{]/.test(line) && !/[,\\]\s*$/.test(line)) {
+      const eqIdx = line.indexOf('=');
+      const expr = line.slice(eqIdx + 1);
+      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
+      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      const curly  = (expr.match(/\{/g) || []).length - (expr.match(/\}/g) || []).length;
+      if (opens > 0)  line = line.trimEnd() + ')'.repeat(opens);
+      else if (square > 0) line = line.trimEnd() + ']'.repeat(square);
+      else if (curly > 0)  line = line.trimEnd() + '}'.repeat(curly);
+    }
+
+    // Unterminated string literal — walk chars and close open quote
+    {
+      let inSingle = false, inDouble = false;
+      const t = line.trimEnd();
+      for (let ci = 0; ci < t.length; ci++) {
+        const ch = t[ci];
+        if (ch === '\\') { ci++; continue; }
+        const three = t.slice(ci, ci + 3);
+        if (!inDouble && three === "'''") { inSingle = !inSingle; ci += 2; continue; }
+        if (!inSingle && three === '"""') { inDouble = !inDouble; ci += 2; continue; }
+        if (!inDouble && ch === "'") { inSingle = !inSingle; continue; }
+        if (!inSingle && ch === '"') { inDouble = !inDouble; continue; }
+      }
+      if (inSingle) line = t + "'";
+      else if (inDouble) line = t + '"';
+    }
 
     return line;
   });
@@ -1114,7 +1158,8 @@ const checkEmptyFunctions = (lines) => {
 };
 
 const analyzePython = (code) => {
-  const lines  = code.split('\n');
+  const normalized = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines  = normalized.split('\n');
   const errors = [
     ...checkPythonLines(lines),
     ...checkUndefinedCaps(lines),
