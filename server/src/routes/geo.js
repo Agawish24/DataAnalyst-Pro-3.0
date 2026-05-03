@@ -6,7 +6,8 @@ const router = express.Router();
 
 const listLayers = async (req, res) => {
   try {
-    const r = await pool.query('SELECT gl.*, d.name as dataset_name FROM geo_layers gl LEFT JOIN datasets d ON gl.dataset_id=d.id WHERE gl.created_by=$1 ORDER BY gl.created_at DESC', [req.user.id]);
+    // Show all layers (shared resource) — deletion is still ownership-gated
+    const r = await pool.query('SELECT gl.*, d.name as dataset_name FROM geo_layers gl LEFT JOIN datasets d ON gl.dataset_id=d.id ORDER BY gl.created_at DESC');
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -44,7 +45,7 @@ router.post('/', authenticate, async (req, res) => {
 
 router.get('/:id/data', authenticate, async (req, res) => {
   try {
-    const layer = await pool.query('SELECT * FROM geo_layers WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const layer = await pool.query('SELECT * FROM geo_layers WHERE id=$1', [req.params.id]);
     if (!layer.rows.length) return res.status(404).json({ error: 'Layer not found' });
     const l = layer.rows[0];
     const cols = [l.lat_col, l.lng_col, l.value_col].filter(Boolean).map(c => `"${c}"`).join(', ');
