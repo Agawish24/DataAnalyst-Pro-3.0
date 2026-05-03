@@ -908,6 +908,51 @@ const checkPythonLines = (lines) => {
         `Line ${lineNum}: Mixed tabs and spaces in indentation — Python 3 raises TabError (use 4 spaces per PEP 8)`,
         'Replace all tab characters with 4 spaces');
     }
+
+    // ── 20. Unterminated string literal ──────────────────────────────────────
+    // Walk character-by-character to track open quote state (skip escaped chars)
+    {
+      let inSingle = false, inDouble = false, inTripleS = false, inTripleD = false;
+      const noShebang = trimmed.startsWith('#') ? '' : trimmed;
+      for (let ci = 0; ci < noShebang.length; ci++) {
+        const ch = noShebang[ci];
+        if (ch === '\\') { ci++; continue; }
+        const two = noShebang.slice(ci, ci + 3);
+        if (!inSingle && !inDouble) {
+          if (two === "'''") { inTripleS = !inTripleS; ci += 2; continue; }
+          if (two === '"""') { inTripleD = !inTripleD; ci += 2; continue; }
+        }
+        if (!inDouble && !inTripleS && !inTripleD && ch === "'") { inSingle = !inSingle; continue; }
+        if (!inSingle && !inTripleS && !inTripleD && ch === '"') { inDouble = !inDouble; continue; }
+      }
+      if (inSingle || inDouble) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unterminated string literal — the string was opened with a quote but never closed on this line`,
+          "Add the matching closing quote: s = 'Hello'");
+      }
+    }
+
+    // ── 21. Unclosed bracket / parenthesis on a single-line expression ────────
+    // Only flag simple assignment lines (not multi-line continuations like function args)
+    if (/^\s*\w+\s*=\s*[(\[{]/.test(raw) && !/[,\\]\s*$/.test(raw)) {
+      const expr = raw.replace(/^\s*\w+\s*=\s*/, '');
+      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
+      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      const curly  = (expr.match(/\{/g) || []).length - (expr.match(/\}/g) || []).length;
+      if (opens > 0) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed parenthesis — expression has ${opens} opening "(" without a matching ")"`,
+          'Add the missing closing parenthesis: t = (1, 2, 3)');
+      } else if (square > 0) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed bracket — expression has ${square} opening "[" without a matching "]"`,
+          'Add the missing closing bracket: lst = [1, 2, 3]');
+      } else if (curly > 0) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed brace — expression has ${curly} opening "{" without a matching "}"`,
+          'Add the missing closing brace: s = {1, 2, 3}');
+      }
+    }
   }
 
   return errors;
