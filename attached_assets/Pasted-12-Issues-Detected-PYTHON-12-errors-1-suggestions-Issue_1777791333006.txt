@@ -1,0 +1,38 @@
+12 Issues Detected
+PYTHON • 12 errors, 1 suggestions
+Issues & Fixes
+Line 61: Bare except: catches all exceptions including SystemExit and KeyboardInterrupt — use except Exception:
+Fix: Replace except: with except Exception:
+Line 61
+Line 68: "HELLO" is used but never defined — uppercase identifiers are usually module-level constants; did you mean a string or a defined variable?
+Fix: Define it first: HELLO = "..." or use a lowercase variable name
+Line 68
+Line 108: "yield" outside function — yield can only be used inside a generator function
+Fix: Move yield inside a def function
+Line 108
+Line 115: "break" outside loop — break can only be used inside a for/while loop
+Fix: Move break inside a loop body
+Line 115
+Line 116: "continue" outside loop — continue can only be used inside a for/while loop
+Fix: Move continue inside a loop body
+Line 116
+Line 123: Function "broken" only assigns local variables but has no return — those values are lost when the function exits
+Fix: Add a return statement: return variable_name
+Line 123
+Line 132: Function "missing_indent" has no body — add "pass" or a return statement
+Fix: Add pass, a return statement, or a docstring to the function body
+Line 132
+Line 133: Expected indented block after "def" on line 132 but found unindented code
+Fix: Indent this line with 4 spaces
+Line 133
+Line 138: Function "bad_string" only assigns local variables but has no return — those values are lost when the function exits
+Fix: Add a return statement: return variable_name
+Line 138
+Line 141: Function "bad_list" only assigns local variables but has no return — those values are lost when the function exits
+Fix: Add a return statement: return variable_name
+Line 141
+Line 144: Function "bad_tuple" only assigns local variables but has no return — those values are lost when the function exits
+Fix: Add a return statement: return variable_name
+Line 144
+Line 147: Function "bad_set" only assigns local variables but has no return — those values are lost when the function exits
+Fix: Add a return statement: return variable_name

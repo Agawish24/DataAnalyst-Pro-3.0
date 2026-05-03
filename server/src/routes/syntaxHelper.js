@@ -1027,6 +1027,9 @@ const fixPythonCode = (code) => {
       }
     }
 
+    // bare except: → except Exception:
+    line = line.replace(/^(\s*)except\s*:\s*$/, '$1except Exception:');
+
     // assert(x = y) → assert(x == y)
     line = line.replace(/^(\s*assert\s*\([^)]*)[^=!<>]=[^=]/, (m) => m.replace(/([^=!<>])=([^=])/, '$1==$2'));
 
@@ -1079,7 +1082,25 @@ const fixPythonCode = (code) => {
 
     return line;
   });
-  return fixed.join('\n');
+
+  // Post-process: inject 'pass' into empty def/class bodies
+  // A def/class whose next non-empty line has equal or less indentation has no body.
+  const result = [];
+  for (let i = 0; i < fixed.length; i++) {
+    result.push(fixed[i]);
+    const blockMatch = fixed[i].match(/^(\s*)(def|class)\b.*:\s*$/);
+    if (blockMatch) {
+      const defIndent = blockMatch[1];
+      let nextIdx = i + 1;
+      while (nextIdx < fixed.length && !fixed[nextIdx].trim()) nextIdx++;
+      const nextLine = fixed[nextIdx];
+      const nextIndent = nextLine !== undefined ? (nextLine.match(/^(\s*)/)?.[1] ?? '') : '';
+      if (nextIndent.length <= defIndent.length) {
+        result.push(defIndent + '    pass');
+      }
+    }
+  }
+  return result.join('\n');
 };
 
 // Whole-file Python pattern checks (things that can't be done per-line)
