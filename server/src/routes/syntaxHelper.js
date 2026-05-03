@@ -40,6 +40,25 @@ const SQL_KEYWORDS = new Set([
   'NCHAR','NVARCHAR','DATE','TIME','TIMESTAMP','DATETIME','BOOLEAN','BOOL',
   'BIT','SERIAL','BIGSERIAL','SMALLSERIAL','UUID','JSON','JSONB','BYTEA',
   'INET','CIDR','MACADDR','ARRAY','INTERVAL',
+  // ── PostgreSQL-specific DDL keywords (prevent false typo hits on pg_dump output) ──
+  'OWNED','READ','WRITE','UNCOMMITTED','COMMITTED','REPEATABLE','SERIALIZABLE',
+  'HEAP','ACCESS','METHOD','CACHE','MINVALUE','MAXVALUE','INCREMENT','CYCLE',
+  'NOCYCLE','RESTART','TABLESPACE','ROLE','LOGIN','NOLOGIN','SUPERUSER',
+  'NOSUPERUSER','INHERIT','NOINHERIT','CREATEDB','NOCREATEDB','CREATEROLE',
+  'NOCREATEROLE','REPLICATION','NOREPLICATION','BYPASSRLS','NOBYPASSRLS',
+  'ENCRYPTED','UNENCRYPTED','PASSWORD','CONCURRENTLY','VACUUM','ANALYZE',
+  'FREEZE','VERBOSE','CATALOG','PUBLIC','CONFIGURATION','WRAPPER','SERVER',
+  'MAPPING','EXTENSION','PUBLICATION','SUBSCRIPTION','POLICY','RULE',
+  'OPERATOR','AGGREGATE','CONVERSION','DOMAIN','TYPE','RANGE','ENUM',
+  'COMMENTS','SECURITY','DEFINER','INVOKER','COST','ROWS','STABLE',
+  'VOLATILE','IMMUTABLE','STRICT','CALLED','PARALLEL','SAFE','UNSAFE',
+  'RESTRICTED','WINDOW','LEAKPROOF','NOLEAKPROOF','EXTERNAL','SIMPLE',
+  'PARTIAL','FULL','EXCLUSION','INCLUDE','WHERE','ATTACH','DETACH',
+  'INHERIT','FOR','TO','NO','START','OWNED','NOTHING','CONFLICT',
+  'FORCE','WITHOUT','LOGGED','UNLOGGED','GLOBAL','LOCAL','MATCHED',
+  'EXCLUDED','RESET','SHOW','LISTEN','UNLISTEN','NOTIFY','COPY','FORMAT',
+  'CSV','BINARY','HEADER','DELIMITER','QUOTE','ESCAPE','FORCE_QUOTE',
+  'FORCE_NOT_NULL','FORCE_NULL','ENCODING','NULL','PROGRAM','STDIN','STDOUT',
 ]);
 
 // ── Levenshtein distance (edit distance = 1 typo detection) ───────────────────
@@ -209,12 +228,16 @@ const checkSQLLines = (lines) => {
       });
     }
 
-    // ── BY without preceding GROUP or ORDER on same line
+    // ── BY without preceding GROUP, ORDER, PARTITION, or other valid DDL keyword
+    // Valid BY contexts: GROUP BY, ORDER BY, PARTITION BY, OWNED BY, CREATED BY,
+    //   AUTHORIZED BY, SORT BY, SET ROLE … BY, FOLLOWED BY, pg_dump constructs, etc.
     if (/\bBY\b/i.test(stripped) && !/\b(GROUP|ORDER|PARTITION)\s+BY\b/i.test(stripped)) {
       const byIdx = upper.indexOf(' BY');
       if (byIdx >= 0) {
         const before = upper.substring(0, byIdx);
-        if (!/\b(GROUP|ORDER|PARTITION)\b/.test(before)) {
+        // Allow any of these words directly before BY
+        const validPreceding = /\b(GROUP|ORDER|PARTITION|OWNED|CREATED|AUTHORIZED|SORTED|INDEXED|FOLLOWED|WRITTEN|REPLACED|TRIGGERED|GENERATED|STORED|LOGGED|ISSUED|GIVEN|SET|SORT|CLUSTER|DISTRIBUTE)\b/;
+        if (!validPreceding.test(before)) {
           errors.push({
             type: 'error', line: lineNum, language: 'sql',
             message: `Line ${lineNum}: Standalone BY — missing GROUP, ORDER, or PARTITION before BY`,
