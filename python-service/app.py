@@ -251,52 +251,125 @@ def outliers():
 
 @app.route('/monte-carlo', methods=['POST'])
 def monte_carlo():
+    """
+    Enterprise Monte Carlo simulation.
+    Supports: normal, uniform, triangular, lognormal distributions.
+    Returns: composite histogram, per-variable tornado sensitivity, confidence bands,
+             baseline comparison, and distribution preview curves.
+    """
     try:
         data = request.json
         variables = data.get('variables', [])
         iterations = int(data.get('iterations', 10000))
-        iterations = min(iterations, 50000)
+        iterations = min(iterations, 100000)
+        baseline_value = float(data.get('baseline_value', 0))
 
-        results = []
         np.random.seed(42)
-        for _ in range(iterations):
-            trial_value = 0
-            for var in variables:
-                dist = var.get('distribution', 'normal')
-                base = float(var.get('baseValue', 1))
-                uncertainty = float(var.get('uncertainty', 0.1))
-                weight = float(var.get('weight', 1))
-                if dist == 'normal':
-                    sample = np.random.normal(base, base * uncertainty)
-                elif dist == 'uniform':
-                    sample = np.random.uniform(base * (1 - uncertainty), base * (1 + uncertainty))
-                elif dist == 'triangular':
-                    lo, hi = base * (1 - uncertainty), base * (1 + uncertainty)
-                    sample = np.random.triangular(lo, base, hi)
-                else:
-                    sample = base
-                trial_value += sample * weight
-            results.append(float(trial_value))
+        PERCENTILES = [1, 5, 10, 25, 50, 75, 90, 95, 99]
 
-        results_arr = np.array(results)
-        percentiles = [5, 10, 25, 50, 75, 90, 95]
-        hist_counts, hist_edges = np.histogram(results_arr, bins=50)
+        # ── Sample each variable across all iterations ────────────────────
+        var_samples = {}  # name → array of N samples
+        for var in variables:
+            dist  = var.get('distribution', 'normal')
+            base  = float(var.get('baseValue', 1))
+            unc   = float(var.get('uncertainty', 0.1))
+            lo    = float(var.get('min', base * (1 - unc)))
+            hi    = float(var.get('max', base * (1 + unc)))
+
+            if dist == 'normal':
+                sigma = base * unc if unc <= 1 else unc
+                samples = np.random.normal(base, max(sigma, 1e-9), iterations)
+            elif dist == 'uniform':
+                samples = np.random.uniform(lo, hi, iterations)
+            elif dist == 'triangular':
+                samples = np.random.triangular(lo, base, hi, iterations)
+            elif dist == 'lognormal':
+                # mu/sigma in log-space so that median = base
+                sigma_ln = float(var.get('sigma', 0.3))
+                mu_ln = np.log(max(base, 1e-9))
+                samples = np.random.lognormal(mu_ln, sigma_ln, iterations)
+            else:
+                samples = np.full(iterations, base)
+
+            var_samples[var.get('name', f'var_{len(var_samples)}')] = samples
+
+        # ── Composite result = weighted sum across variables ──────────────
+        composite = np.zeros(iterations)
+        for var in variables:
+            name   = var.get('name', '')
+            weight = float(var.get('weight', 1))
+            if name in var_samples:
+                composite += var_samples[name] * weight
+
+        composite_arr = composite
+
+        # ── Histogram (50 bins) ───────────────────────────────────────────
+        hist_counts, hist_edges = np.histogram(composite_arr, bins=50)
+
+        # ── Per-variable tornado sensitivity ──────────────────────────────
+        # Hold all variables at their base value; perturb one at a time by ±1 std
+        tornado = []
+        base_composite = sum(
+            float(v.get('baseValue', 1)) * float(v.get('weight', 1))
+            for v in variables
+        )
+        for var in variables:
+            name   = var.get('name', '')
+            base   = float(var.get('baseValue', 1))
+            unc    = float(var.get('uncertainty', 0.1))
+            weight = float(var.get('weight', 1))
+            delta  = base * unc
+
+            low_val  = (base_composite - delta * weight)
+            high_val = (base_composite + delta * weight)
+
+            tornado.append({
+                'name':       name,
+                'low':        round(float(low_val), 4),
+                'high':       round(float(high_val), 4),
+                'base':       round(float(base_composite), 4),
+                'swing':      round(float(high_val - low_val), 4),
+                'swing_pct':  round(float((high_val - low_val) / max(abs(base_composite), 1e-9) * 100), 2),
+                'distribution': var.get('distribution', 'normal'),
+            })
+
+        tornado.sort(key=lambda x: abs(x['swing']), reverse=True)
+
+        # ── Per-variable distribution preview (curve points) ──────────────
+        dist_previews = {}
+        for var in variables:
+            name = var.get('name', '')
+            if name not in var_samples:
+                continue
+            s = var_samples[name]
+            mini, maxi = float(np.min(s)), float(np.max(s))
+            x_pts = np.linspace(mini, maxi, 40).tolist()
+            h, e  = np.histogram(s, bins=40)
+            h_norm = (h / max(h.max(), 1)).tolist()
+            dist_previews[name] = {'x': [round(v, 4) for v in x_pts], 'y': [round(v, 4) for v in h_norm]}
+
+        # ── Confidence bands ──────────────────────────────────────────────
+        pct_values = {str(p): round(float(np.percentile(composite_arr, p)), 4) for p in PERCENTILES}
+        prob_above_baseline = float(np.mean(composite_arr > baseline_value)) if baseline_value else None
 
         return jsonify({
-            'iterations': iterations,
-            'mean': float(np.mean(results_arr)),
-            'std': float(np.std(results_arr)),
-            'min': float(np.min(results_arr)),
-            'max': float(np.max(results_arr)),
-            'percentiles': {str(p): float(np.percentile(results_arr, p)) for p in percentiles},
-            'histogram': {
-                'counts': hist_counts.tolist(),
-                'edges': hist_edges.tolist(),
-            },
-            'samples': results[:500],
+            'iterations':           iterations,
+            'mean':                 round(float(np.mean(composite_arr)), 4),
+            'std':                  round(float(np.std(composite_arr)), 4),
+            'min':                  round(float(np.min(composite_arr)), 4),
+            'max':                  round(float(np.max(composite_arr)), 4),
+            'percentiles':          pct_values,
+            'histogram':            {'counts': hist_counts.tolist(), 'edges': [round(float(e), 4) for e in hist_edges]},
+            'tornado':              tornado,
+            'dist_previews':        dist_previews,
+            'prob_above_baseline':  prob_above_baseline,
+            'confidence_band_90':   [pct_values.get('5'),  pct_values.get('95')],
+            'confidence_band_50':   [pct_values.get('25'), pct_values.get('75')],
+            'samples':              [round(float(x), 4) for x in composite_arr[:200]],
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
 @app.route('/prophet-forecast', methods=['POST'])
