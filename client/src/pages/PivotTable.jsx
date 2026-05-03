@@ -53,6 +53,7 @@ export default function PivotTable() {
       loadColumns();
       setRowFields([]);
       setColFields([]);
+      setValueField('');
       setResult(null);
       setCardinalityWarn(null);
     }
@@ -232,10 +233,10 @@ export default function PivotTable() {
               {columns.length > 0 && <>
                 {/* Value field */}
                 <div>
-                  <label style={{ color: '#9ca3af', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>Value Field</label>
+                  <label style={{ color: '#9ca3af', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>Value Field <span style={{ color: '#4b5563' }}>(numeric only)</span></label>
                   <select value={valueField} onChange={e => setValueField(e.target.value)} style={sel}>
-                    <option value="">Select column…</option>
-                    {columns.map(c => <option key={c} value={c}>{c}{numCols.includes(c) ? ' (numeric)' : ''}</option>)}
+                    <option value="">— Select numeric column —</option>
+                    {numCols.length > 0 ? numCols.map(c => <option key={c} value={c}>{c}</option>) : <option disabled>No numeric columns found</option>}
                   </select>
                 </div>
 

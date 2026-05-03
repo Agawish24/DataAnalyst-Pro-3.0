@@ -117,7 +117,11 @@ router.get('/feed', (req, res) => {
     try {
       const point = generator(i++);
       res.write(`data: ${JSON.stringify({ ...point, _seq: i, _type: feedType })}\n\n`);
-    } catch { clearInterval(timer); }
+    } catch (e) { 
+      console.error('[streaming/feed error]', e.message);
+      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      clearInterval(timer); 
+    }
   }, intervalMs);
 
   req.on('close', () => clearInterval(timer));
