@@ -35,8 +35,7 @@ const ENTITY_COLORS = {
 const buildGraph = async (req, res) => {
   try {
     const datasets = await pool.query(
-      'SELECT id, name, schema, row_count FROM datasets WHERE uploaded_by=$1 ORDER BY created_at DESC LIMIT 20',
-      [req.user.id]
+      'SELECT id, name, schema, row_count FROM datasets ORDER BY created_at DESC LIMIT 20'
     );
 
     const nodes = [];
@@ -166,7 +165,7 @@ router.get('/relationships/:id1/:id2', authenticate, async (req, res) => {
 router.get('/entity/:colName', authenticate, async (req, res) => {
   try {
     const col = req.params.colName.toLowerCase();
-    const datasets = await pool.query('SELECT id, name, schema, row_count FROM datasets WHERE uploaded_by=$1', [req.user.id]);
+    const datasets = await pool.query('SELECT id, name, schema, row_count FROM datasets');
 
     const found = [];
     for (const ds of datasets.rows) {

@@ -53,8 +53,7 @@ router.get('/', authenticate, async (req, res) => {
     const result = await pool.query(
       `SELECT r.*, d.name as dataset_name, u.name as creator_name FROM reports r
        LEFT JOIN datasets d ON r.dataset_id=d.id LEFT JOIN users u ON r.created_by=u.id
-       WHERE r.created_by=$1 ORDER BY r.created_at DESC`,
-      [req.user.id]
+       ORDER BY r.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

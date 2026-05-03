@@ -10,8 +10,7 @@ router.get('/', authenticate, async (req, res) => {
     const result = await pool.query(
       `SELECT j.*, d.name as dataset_name, u.name as creator_name FROM jobs j
        LEFT JOIN datasets d ON j.dataset_id=d.id LEFT JOIN users u ON j.created_by=u.id
-       WHERE j.created_by=$1 ORDER BY j.created_at DESC`,
-      [req.user.id]
+       ORDER BY j.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -96,8 +95,7 @@ router.get('/:id/runs', authenticate, async (req, res) => {
 router.get('/alerts/list', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT a.*, d.name as dataset_name FROM alerts a LEFT JOIN datasets d ON a.dataset_id=d.id WHERE a.created_by=$1 ORDER BY a.created_at DESC`,
-      [req.user.id]
+      `SELECT a.*, d.name as dataset_name FROM alerts a LEFT JOIN datasets d ON a.dataset_id=d.id ORDER BY a.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -8,8 +8,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT p.*, u.name as creator_name FROM pipelines p LEFT JOIN users u ON p.created_by=u.id WHERE p.created_by=$1 ORDER BY p.updated_at DESC`,
-      [req.user.id]
+      `SELECT p.*, u.name as creator_name FROM pipelines p LEFT JOIN users u ON p.created_by=u.id ORDER BY p.updated_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

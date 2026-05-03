@@ -74,7 +74,7 @@ router.get('/types', authenticate, (req, res) => {
 
 router.get('/sources', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM streaming_sources WHERE created_by=$1 ORDER BY created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT * FROM streaming_sources ORDER BY created_at DESC');
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

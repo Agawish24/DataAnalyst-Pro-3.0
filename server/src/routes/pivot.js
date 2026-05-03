@@ -81,14 +81,14 @@ router.post('/save', authenticate, async (req, res) => {
 
 router.get('/configs', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT pc.*, d.name as dataset_name FROM pivot_configs pc LEFT JOIN datasets d ON pc.dataset_id=d.id WHERE pc.created_by=$1 ORDER BY pc.created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT pc.*, d.name as dataset_name FROM pivot_configs pc LEFT JOIN datasets d ON pc.dataset_id=d.id ORDER BY pc.created_at DESC');
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/saved', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT pc.*, d.name as dataset_name FROM pivot_configs pc LEFT JOIN datasets d ON pc.dataset_id=d.id WHERE pc.created_by=$1 ORDER BY pc.created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT pc.*, d.name as dataset_name FROM pivot_configs pc LEFT JOIN datasets d ON pc.dataset_id=d.id ORDER BY pc.created_at DESC');
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

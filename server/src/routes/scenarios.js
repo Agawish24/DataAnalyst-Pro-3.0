@@ -10,8 +10,7 @@ router.get('/', authenticate, async (req, res) => {
     const result = await pool.query(
       `SELECT s.*, d.name as dataset_name FROM scenarios s
        LEFT JOIN datasets d ON s.dataset_id=d.id
-       WHERE s.created_by=$1 ORDER BY s.updated_at DESC`,
-      [req.user.id]
+       ORDER BY s.updated_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

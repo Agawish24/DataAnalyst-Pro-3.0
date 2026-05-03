@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', authenticate, async (req, res) => {
   try {
-    const r = await pool.query('SELECT w.*, d.name as dataset_name FROM webhooks w LEFT JOIN datasets d ON w.dataset_id=d.id WHERE w.created_by=$1 ORDER BY w.created_at DESC', [req.user.id]);
+    const r = await pool.query('SELECT w.*, d.name as dataset_name FROM webhooks w LEFT JOIN datasets d ON w.dataset_id=d.id ORDER BY w.created_at DESC');
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

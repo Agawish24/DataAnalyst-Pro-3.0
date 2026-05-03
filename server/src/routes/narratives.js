@@ -237,8 +237,7 @@ router.get('/history', authenticate, async (req, res) => {
     const r = await pool.query(
       `SELECT n.id, n.title, n.created_at, d.name as dataset_name, d.id as dataset_id
        FROM narratives n JOIN datasets d ON n.dataset_id=d.id
-       WHERE n.created_by=$1 ORDER BY n.created_at DESC LIMIT 20`,
-      [req.user.id]
+       ORDER BY n.created_at DESC LIMIT 20`
     );
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
