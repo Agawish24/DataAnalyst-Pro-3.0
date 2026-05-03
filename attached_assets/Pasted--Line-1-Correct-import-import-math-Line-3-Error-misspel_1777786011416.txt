@@ -1,0 +1,207 @@
+# Line 1: Correct import
+import math
+
+# Line 3: Error (misspelled import)
+improt sys
+
+# Line 5: Correct function
+def add(a, b):
+    return a + b
+
+# Line 9: Error (missing colon)
+def subtract(a, b)
+    return a - b
+
+# Line 13: Correct loop
+for i in range(5):
+    print(i)
+
+# Line 17: Error (wrong indentation)
+for j in range(3):
+print(j)
+
+# Line 21: Correct class
+class Person:
+    def __init__(self, name):
+        self.name = name
+
+# Line 26: Error (missing self)
+class Animal:
+    def __init__(name):
+        self.name = name
+
+# Line 31: Correct if statement
+x = 10
+if x > 5:
+    print("x is greater than 5")
+
+# Line 36: Error (missing parentheses in print)
+if x < 5:
+    print "x is less than 5"
+
+# Line 40: Correct list comprehension
+squares = [n*n for n in range(10)]
+
+# Line 43: Error (invalid syntax in list comprehension)
+cubes = [n**3 for n in range 10]
+
+# Line 47: Correct dictionary
+data = {"a": 1, "b": 2}
+
+# Line 50: Error (missing colon in dict)
+bad_dict = {"x" 1, "y" 2}
+
+# Line 54: Correct try/except
+try:
+    val = int("123")
+except ValueError:
+    print("Invalid number")
+
+# Line 60: Error (wrong keyword)
+tr:
+    val = int("abc")
+except:
+    print("error")
+
+# Line 65: Correct while loop
+count = 0
+while count < 3:
+    print(count)
+    count += 1
+
+# Line 71: Error (assignment instead of comparison)
+while count = 3:
+    print("loop")
+
+# Line 75: Correct function with default
+def greet(name="World"):
+    print("Hello", name)
+
+# Line 79: Error (missing quotes)
+def shout(word):
+    print(HELLO)
+
+# Line 83: Correct import alias
+import numpy as np
+
+# Line 86: Error (invalid alias)
+import pandas as pd as p
+
+# Line 90: Correct file handling
+with open("test.txt", "w") as f:
+    f.write("Hello")
+
+# Line 94: Error (missing 'as')
+with open("test.txt", "r") f:
+    print(f.read())
+
+# Line 98: Correct lambda
+double = lambda x: x * 2
+
+# Line 101: Error (invalid lambda syntax)
+triple = lambda x x*3
+
+# Line 105: Correct generator
+def gen():
+    for i in range(3):
+        yield i
+
+# Line 110: Error (yield outside function)
+yield 5
+
+# Line 113: Correct boolean
+flag = True
+
+# Line 115: Error (capitalization)
+flag2 = truE
+
+# Line 118: Correct import from
+from math import sqrt
+
+# Line 120: Error (wrong keyword)
+form math import pi
+
+# Line 123: Correct function call
+print(sqrt(16))
+
+# Line 125: Error (undefined variable)
+print(unknown_var)
+
+# Line 128: Correct nested function
+def outer():
+    def inner():
+        return "inside"
+    return inner()
+
+# Line 134: Error (missing return)
+def broken():
+    x = 5
+
+# Line 138: Correct list slicing
+nums = [1,2,3,4,5]
+print(nums[1:3])
+
+# Line 142: Error (invalid slice)
+print(nums[::])
+
+# Line 145: Correct f-string
+name = "Alice"
+print(f"Hello {name}")
+
+# Line 149: Error (wrong f-string syntax)
+print(f"Hello {name)
+
+# Line 152: Correct assert
+assert 2 + 2 == 4
+
+# Line 154: Error (invalid assert)
+assert(2 + 2 = 4)
+
+# Line 157: Correct decorator
+def decorator(func):
+    def wrapper():
+        print("Before")
+        func()
+        print("After")
+    return wrapper
+
+# Line 165: Error (missing def keyword)
+decorator func():
+    print("oops")
+
+# Line 169: Correct recursion
+def factorial(n):
+    if n == 0:
+        return 1
+    return n * factorial(n-1)
+
+# Line 175: Error (infinite recursion)
+def bad_factorial(n):
+    return n * bad_factorial(n)
+
+# Line 179: Correct tuple
+t = (1,2,3)
+
+# Line 181: Error (extra comma)
+t2 = (1,2,3,)
+
+# Line 184: Correct set
+s = {1,2,3}
+
+# Line 186: Error (duplicate key in set literal)
+s2 = {1,1,2}
+
+# Line 189: Correct break
+for i in range(10):
+    if i == 5:
+        break
+
+# Line 194: Error (break outside loop)
+break
+
+# Line 196: Correct continue
+for i in range(3):
+    continue
+
+# Line 199: Error (continue outside loop)
+continue

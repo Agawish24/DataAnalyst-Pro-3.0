@@ -637,41 +637,271 @@ const analyzeSQL = (code) => {
 };
 
 // ── Python analysis ───────────────────────────────────────────────────────────
-const PYTHON_PATTERNS = [
-  { re: /print\s+[^(]/, msg: 'Python 3 requires parentheses: print()', fix: c => c.replace(/\bprint\s+([^()\n]+)/g, 'print($1)') },
-  { re: /^\s*(if|for|while|def|class|with|try|except|elif|else|finally)[^:]*$(?!:)/m, msg: 'Missing colon at end of block statement (if/for/while/def/class)', fix: c => c },
-  { re: /==['"](True|False|None)['"]/g, msg: 'Comparing == to string "True"/"False"/"None" — use boolean True/False/None literals', fix: c => c.replace(/==["'](True)["']/g, '== True').replace(/==["'](False)["']/g, '== False').replace(/==["'](None)["']/g, 'is None') },
-  { re: /\bexcept\s*:/m, msg: 'Bare except: catches all exceptions including SystemExit — use except Exception:', fix: c => c.replace(/\bexcept\s*:/g, 'except Exception:') },
-  { re: /\brange\s*\(\s*len\s*\(/g, msg: 'Avoid range(len(x)) — iterate directly: for item in x', fix: c => c },
-  { re: /import \*/, msg: 'Wildcard imports (import *) pollute namespace — import specific names', fix: c => c },
-  { re: /\bxrange\b/, msg: 'xrange does not exist in Python 3 — use range()', fix: c => c.replace(/\bxrange\b/g, 'range') },
-  { re: /\bdict\.has_key\b/, msg: '.has_key() removed in Python 3 — use "key in dict"', fix: c => c.replace(/(\w+)\.has_key\(([^)]+)\)/g, '$2 in $1') },
-  { re: /==\s*None\b/g, msg: 'Use "is None" instead of "== None"', fix: c => c.replace(/==\s*None\b/g, 'is None') },
-  { re: /!=\s*None\b/g, msg: 'Use "is not None" instead of "!= None"', fix: c => c.replace(/!=\s*None\b/g, 'is not None') },
-  { re: /\bexecfile\b/, msg: 'execfile() removed in Python 3 — use exec(open("file").read())', fix: c => c.replace(/\bexecfile\s*\(([^)]+)\)/g, 'exec(open($1).read())') },
-  { re: /\breadlines\(\)/, msg: 'readlines() loads entire file — consider iterating file directly for large files', fix: c => c },
-  { re: /global\s+\w+/, msg: 'Global variables are an anti-pattern — consider returning values or using classes', fix: c => c },
-  { re: /\bdf\[([^\]]+)\]\s*=\s*df\[([^\]]+)\]\.apply\(lambda/, msg: 'apply(lambda) is slow — consider vectorized operations with numpy or pandas built-ins', fix: c => c },
+
+// Strip an inline comment from a line (naively — doesn't handle all string edge cases)
+const stripPyComment = (raw) => raw.replace(/#(?=([^"'\\]*(\\.|'([^'\\]*\\.)*[^'\\]*'|"([^"\\]*\\.)*[^"\\]*"))*[^"']*$).*$/, '');
+
+const checkPythonLines = (lines) => {
+  const errors = [];
+  const seen = new Set(); // deduplicate identical messages
+
+  const push = (type, line, message, fix) => {
+    const key = `${line}:${message}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    errors.push({ type, line, language: 'python', message, fix });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNum = i + 1;
+    const raw = lines[i];
+    const indent = (raw.match(/^(\s*)/) || ['', ''])[1].length;
+    const noComment = stripPyComment(raw);
+    const trimmed = noComment.trim();
+    const trimmedRaw = raw.trim();
+
+    if (!trimmedRaw || trimmedRaw.startsWith('#')) continue;
+
+    // ── 1. Keyword typos at line start ──────────────────────────────────────
+    if (/^improt\b/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "improt" is not valid Python — did you mean "import"?`,
+        'Replace improt with import');
+    }
+    if (/^form\s+\w+\s+import\b/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "form" is not a Python keyword — did you mean "from"?`,
+        'Replace "form" with "from": from module import name');
+    }
+    if (/^tr\s*:/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "tr" is not a Python keyword — did you mean "try"?`,
+        'Replace "tr:" with "try:"');
+    }
+
+    // ── 2. Missing colon on block-starting statements ────────────────────────
+    if (/^\s*(def|class|if|elif|else|for|while|try|except|finally|with|async\s+def)\b/.test(raw)) {
+      if (!/:\s*(#.*)?$/.test(noComment)) {
+        const kw = trimmed.split(/[\s(]/)[0];
+        push('error', lineNum,
+          `Line ${lineNum}: Missing colon at end of "${kw}" statement`,
+          `Add a colon: ${kw} ...:`);
+      }
+    }
+
+    // ── 3. Indentation error: line after block opener at same or lower indent ─
+    if (i > 0) {
+      const prevRaw  = lines[i - 1];
+      const prevNC   = stripPyComment(prevRaw);
+      const prevTrim = prevNC.trim();
+      const prevIndent = (prevRaw.match(/^(\s*)/) || ['', ''])[1].length;
+      if (/:\s*$/.test(prevTrim) &&
+          /^\s*(def|class|if|elif|else|for|while|try|except|finally|with)\b/.test(prevRaw) &&
+          trimmed && indent <= prevIndent) {
+        push('error', lineNum,
+          `Line ${lineNum}: Expected indented block after "${prevTrim.split(/\s/)[0]}" on line ${lineNum - 1} but found unindented code`,
+          'Indent this line with 4 spaces');
+      }
+    }
+
+    // ── 4. Missing self in class method ─────────────────────────────────────
+    if (/^\s{4,}def\s+\w+\s*\(/.test(raw)) {
+      const paramMatch = raw.match(/def\s+(\w+)\s*\(([^)]*)\)/);
+      if (paramMatch) {
+        const params = paramMatch[2].trim();
+        const isMissingself = params === '' ||
+          (!params.startsWith('self') && !params.startsWith('cls') &&
+           !params.startsWith('*') && !/\bself\b/.test(params));
+        if (isMissingself) {
+          let inClass = false;
+          for (let j = i - 1; j >= 0 && j >= i - 40; j--) {
+            const pl = lines[j];
+            if (/^class\s+\w+/.test(pl.trim())) { inClass = true; break; }
+            if (/^def\s+\w+/.test(pl.trim()) && (pl.match(/^(\s*)/) || ['', ''])[1].length === 0) break;
+          }
+          if (inClass) {
+            push('error', lineNum,
+              `Line ${lineNum}: Class method "${paramMatch[1]}" is missing "self" as first parameter`,
+              'Add self: def method_name(self, ...)');
+          }
+        }
+      }
+    }
+
+    // ── 5. Python 2 print statement ─────────────────────────────────────────
+    if (/^\s*print\s+[^(=\n]/.test(raw) && !/^\s*print\s*\(/.test(raw) && !/^\s*print\s*$/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Python 2 print statement — Python 3 requires parentheses: print(...)`,
+        'Add parentheses: print("text")');
+    }
+
+    // ── 6. range without parentheses ────────────────────────────────────────
+    if (/\brange\s+\d/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: range() requires parentheses — use range(n), not range n`,
+        'Add parentheses: range(10)');
+    }
+
+    // ── 7. Dict literal missing colon between key and value ─────────────────
+    if (/\{["'][^"']+["']\s+[^:\s}]/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Dictionary literal missing colon — each key-value pair needs a colon: {"key": value}`,
+        'Add colon: {"x": 1, "y": 2}');
+    }
+
+    // ── 8. Assignment instead of comparison in while/if condition ────────────
+    if (/^\s*(while|if|elif)\s+\w+\s*=\s*\w/.test(raw) && !/^\s*(while|if|elif)\s+\w+\s*==/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Assignment (=) used in ${trimmed.split(/\s/)[0]} condition — use == for comparison`,
+        'Replace = with ==');
+    }
+
+    // ── 9. Double import alias ───────────────────────────────────────────────
+    if (/^\s*import\s+\S+(\s+as\s+\w+){2,}/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Invalid import — cannot chain "as" twice: use one alias only (import module as alias)`,
+        'Use one alias: import pandas as pd');
+    }
+
+    // ── 10. Missing 'as' in with statement ──────────────────────────────────
+    if (/^\s*with\s+.+\)\s+\w+\s*:/.test(raw) && !/\bas\b/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: with statement missing "as" keyword — use "with expression as variable:"`,
+        'Add as: with open("file") as f:');
+    }
+
+    // ── 11. lambda missing colon ─────────────────────────────────────────────
+    if (/\blambda\b/.test(trimmed) && !/\blambda\b[^:]*:/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: lambda expression missing colon — syntax is "lambda params: expression"`,
+        'Add colon: lambda x: x * 2');
+    }
+
+    // ── 12. yield / break / continue at module level (indent = 0) ───────────
+    if (indent === 0) {
+      if (/^yield\b/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "yield" outside function — yield can only be used inside a generator function`,
+          'Move yield inside a def function');
+      }
+      if (/^break\b/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "break" outside loop — break can only be used inside a for/while loop`,
+          'Move break inside a loop body');
+      }
+      if (/^continue\b/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "continue" outside loop — continue can only be used inside a for/while loop`,
+          'Move continue inside a loop body');
+      }
+    }
+
+    // ── 13. Wrong True / False / None capitalization ─────────────────────────
+    const capMatch = trimmed.match(/\b(true|false|none|TRUE|FALSE|NONE|truE|falSe|tRue|fAlse|nOne)\b/);
+    if (capMatch) {
+      const bad = capMatch[1];
+      const lc  = bad.toLowerCase();
+      const correct = lc === 'true' ? 'True' : lc === 'false' ? 'False' : 'None';
+      // Skip if it's clearly inside a string on the same line
+      if (!new RegExp(`["'][^"']*${bad}[^"']*["']`).test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "${bad}" is not defined — Python booleans/None are capitalized: use ${correct}`,
+          `Replace "${bad}" with "${correct}"`);
+      }
+    }
+
+    // ── 14. f-string with ) instead of } closing expression ─────────────────
+    // Works even when the f-string itself is unclosed (intentionally malformed)
+    if (/f["']/.test(trimmed)) {
+      if (/f["'][^"']*\{[^}]*\)/.test(trimmed) && !/f["'][^"']*\{[^}]*\}/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: f-string expression uses ")" to close instead of "}" — use f"Hello {name}"`,
+          'Replace ) with } inside the f-string expression');
+      }
+    }
+
+    // ── 15. assert with single = (assignment, not comparison) ────────────────
+    if (/^\s*assert\s*\(.*[^=!<>]=[^=].*\)/.test(raw) && !/^\s*assert\s*\(.*==/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: assert uses single = (assignment) instead of == (comparison)`,
+        'Replace = with ==: assert(x == y)');
+    }
+
+    // ── 16. Missing def keyword: `word word(args):` at indented line ─────────
+    if (/^\s{4,}\w+\s+\w+\s*\([^)]*\)\s*:/.test(raw) &&
+        !/^\s*(def|class|if|elif|else|for|while|try|except|finally|with|async|return|import|from|raise|yield|del|pass|assert|global|nonlocal|print|and|or|not)\b/.test(raw)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Looks like a function definition missing the "def" keyword`,
+        'Add def before function name: def function_name(params):');
+    }
+
+    // ── 17. Duplicate values in numeric set literal ──────────────────────────
+    const setLiteralMatch = trimmed.match(/=\s*\{([\d\s,]+)\}/);
+    if (setLiteralMatch) {
+      const nums = setLiteralMatch[1].split(',').map(n => n.trim()).filter(Boolean);
+      const uniq = new Set(nums);
+      if (uniq.size < nums.length) {
+        push('warning', lineNum,
+          `Line ${lineNum}: Duplicate values in set literal — sets store only unique elements, duplicates are silently discarded`,
+          'Remove duplicate values from the set literal');
+      }
+    }
+
+    // ── 18. Bare except: ────────────────────────────────────────────────────
+    if (/^\s*except\s*:/.test(raw)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Bare except: catches all exceptions including SystemExit and KeyboardInterrupt — use except Exception:`,
+        'Replace except: with except Exception:');
+    }
+
+    // ── 19. Mixed tabs and spaces ────────────────────────────────────────────
+    const indentStr = (raw.match(/^(\s+)/) || [])[1] || '';
+    if (indentStr.includes('\t') && indentStr.includes(' ')) {
+      push('error', lineNum,
+        `Line ${lineNum}: Mixed tabs and spaces in indentation — Python 3 raises TabError (use 4 spaces per PEP 8)`,
+        'Replace all tab characters with 4 spaces');
+    }
+  }
+
+  return errors;
+};
+
+// Whole-file Python pattern checks (things that can't be done per-line)
+const PYTHON_GLOBAL_PATTERNS = [
+  { re: /==['"](True|False|None)['"]/g, type: 'warning', msg: 'Comparing with ==" True"/"False"/"None" string — use boolean True/False/None literals', fix: c => c.replace(/==["'](True)["']/g, '== True').replace(/==["'](False)["']/g, '== False').replace(/==["'](None)["']/g, 'is None') },
+  { re: /\brange\s*\(\s*len\s*\(/g,      type: 'warning', msg: 'Avoid range(len(x)) — iterate directly: for item in x', fix: c => c },
+  { re: /import \*/,                      type: 'warning', msg: 'Wildcard imports (import *) pollute namespace — import specific names', fix: c => c },
+  { re: /\bxrange\b/,                    type: 'error',   msg: 'xrange does not exist in Python 3 — use range()', fix: c => c.replace(/\bxrange\b/g, 'range') },
+  { re: /\bdict\.has_key\b/,             type: 'error',   msg: '.has_key() removed in Python 3 — use "key in dict"', fix: c => c.replace(/(\w+)\.has_key\(([^)]+)\)/g, '$2 in $1') },
+  { re: /==\s*None\b/g,                  type: 'warning', msg: 'Use "is None" instead of "== None"', fix: c => c.replace(/==\s*None\b/g, 'is None') },
+  { re: /!=\s*None\b/g,                  type: 'warning', msg: 'Use "is not None" instead of "!= None"', fix: c => c.replace(/!=\s*None\b/g, 'is not None') },
+  { re: /\bexecfile\b/,                  type: 'error',   msg: 'execfile() removed in Python 3 — use exec(open("file").read())', fix: c => c.replace(/\bexecfile\s*\(([^)]+)\)/g, 'exec(open($1).read())') },
 ];
 
 const analyzePython = (code) => {
-  const errors = [];
-  let fixed = code;
-  const lines = code.split('\n');
-  for (const p of PYTHON_PATTERNS) {
-    if (p.re.test(code)) {
-      const match = code.match(p.re);
+  const lines  = code.split('\n');
+  const errors = checkPythonLines(lines);
+  let fixed    = code;
+
+  // Global patterns: deduplicate against per-line errors already found
+  const existingMsgs = new Set(errors.map(e => e.message));
+  for (const p of PYTHON_GLOBAL_PATTERNS) {
+    const re = new RegExp(p.re.source, p.re.flags.replace('g', ''));
+    if (re.test(code)) {
+      const match = code.match(re);
       const lineNum = match ? code.substring(0, match.index).split('\n').length : null;
-      errors.push({ type: 'warning', message: lineNum ? `Line ${lineNum}: ${p.msg}` : p.msg, language: 'python', line: lineNum });
+      const msg = lineNum ? `Line ${lineNum}: ${p.msg}` : p.msg;
+      if (!existingMsgs.has(msg)) {
+        errors.push({ type: p.type, message: msg, language: 'python', line: lineNum });
+        existingMsgs.add(msg);
+      }
       if (p.fix) fixed = p.fix(fixed);
     }
   }
-  lines.forEach((line, i) => {
-    const indent = line.match(/^(\s+)/)?.[1];
-    if (indent && indent.includes('\t') && indent.includes(' ')) {
-      errors.push({ type: 'error', message: `Line ${i+1}: Mixed tabs and spaces — use spaces only (PEP 8)`, language: 'python', line: i+1 });
-    }
-  });
+
+  // Sort by line number
+  errors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
+
   return { errors, fixed: fixed !== code ? fixed : null, suggestions: generatePythonSuggestions(code) };
 };
 
