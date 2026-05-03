@@ -1,0 +1,64 @@
+30 Issues Detected
+PYTHON • 30 errors, 2 suggestions
+Groq AI
+Issues & Fixes (30)
+Line 6: Missing colon at end of "def" statement
+Fix: Add a colon: def ...:
+Line 15: Expected indented block after "for" on line 14 but found unindented code
+Fix: Indent this line with 4 spaces
+Line 18: "total_value" is used but was never defined — this will cause a NameError at runtime
+Fix: Define "total_value" before this line: total_value = <value>
+Line 26: Function "do_nothing" has no body — add "pass" or a return statement
+Fix: Add pass, a return statement, or a docstring to the function body
+Line 30: "greet" expects at least 1 argument but was called with 0 (defined on line 2)
+Fix: Pass the required arguments: greet(arg1)
+Line 30: "greet" expects 1 argument but was called with none (defined on line 2)
+Fix: Pass the required arguments: greet(arg1)
+Line 36: "prnt" is not defined — did you mean "print"?
+Fix: Replace "prnt" with "print"
+Line 42: Duplicate key "x" in dict literal — later value silently overwrites earlier one
+Fix: Use unique keys in the dictionary
+Line 54: Type error — math.sqrt() expects a number but received a string literal ""sixteen""
+Fix: Pass a number instead: math.sqrt(value) where value is int or float
+Line 65: Missing colon at end of "except" statement
+Fix: Add a colon: except ...:
+Line 77: Missing colon at end of "elif" statement
+Fix: Add a colon: elif ...:
+Line 84: lambda expression missing colon — syntax is "lambda params: expression"
+Fix: Add colon: lambda x: x * 2
+Line 94: Infinite recursion — "bad_fact" calls itself with no base case; this will cause a RecursionError
+Fix: Add a base case before the recursive call: if n <= 0: return result
+Line 101: Invalid file mode "z" in open() — valid modes are: "r", "w", "a", "rb", "wb", "ab", "r+", "w+", "x"
+Fix: Use a valid mode: open("file.txt", "r") or open("file.txt", "wb")
+Line 115: "t" is a tuple and is immutable — you cannot assign to tuple items
+Fix: Convert to list first: lst = list(t) then assign lst[0] = value
+Line 121: Unhashable type — cannot add a list to a set; lists are mutable and cannot be hashed
+Fix: Use a tuple instead: s.add((4, 5))
+Line 128: Duplicate parameter name "a" in function definition — each parameter must be unique
+Fix: Rename duplicate parameters so each has a unique name
+Line 137: "yield" outside function — yield can only be used inside a generator function
+Fix: Move yield inside a def function
+Line 144: f-string expression uses ")" to close instead of "}" — use f"Hello {name}"
+Fix: Replace ) with } inside the f-string expression
+Line 144: Unclosed "{" in f-string — every "{" must have a matching "}" to close the expression
+Fix: Add the closing brace: f"Hello {name}"
+Line 150: "tru" is not defined — did you mean "True"?
+Fix: Replace "tru" with "True"
+Line 157: Assignment (=) used in if condition — use == for comparison
+Fix: Replace = with ==
+Line 165: append() requires an argument — called here with none
+Fix: Pass the required argument: .append(value)
+Line 185: Missing colon at end of "while" statement
+Fix: Add a colon: while ...:
+Line 194: "break" outside loop — break can only be used inside a for/while loop
+Fix: Move break inside a loop body
+Line 202: "continue" outside loop — continue can only be used inside a for/while loop
+Fix: Move continue inside a loop body
+Line 208: Bare "assert" with no condition — assert must be followed by an expression to test
+Fix: Add a condition: assert x > 0 or assert value is not None, "message"
+Line 214: Bare "raise" outside except block — bare raise re-raises the current exception and is only valid inside an except handler
+Fix: Add an exception: raise ValueError("message") or move inside an except block
+Line 221: Class inherits from "Boss" but "Boss" is not defined anywhere in this file
+Fix: Define "Boss" before this class, or import it
+Line 230: "return" with no value in "bar" — returns None implicitly; add a value if this function should return data
+Fix: Add a return value: return result or return None explicitly

@@ -1627,19 +1627,7 @@ const checkPythonAdvanced = (lines) => {
       }
     }
 
-    // ── J. Wrong argument count for user-defined functions ────────────────
-    // Only check simple calls: funcname(arg1, arg2, ...)  at statement level
-    const callM = noComment.match(/^(\w+)\s*\(([^)]*)\)\s*$/);
-    if (callM && funcSigs[callM[1]]) {
-      const { requiredCount, line: defLine } = funcSigs[callM[1]];
-      const argStr = callM[2].trim();
-      const argCount = argStr === '' ? 0 : argStr.split(',').length;
-      if (argCount < requiredCount) {
-        push('error', lineNum,
-          `Line ${lineNum}: "${callM[1]}" expects at least ${requiredCount} argument${requiredCount > 1 ? 's' : ''} but was called with ${argCount} (defined on line ${defLine})`,
-          `Pass the required arguments: ${callM[1]}(${Array(requiredCount).fill('arg').map((a,i)=>a+(i+1)).join(', ')})`);
-      }
-    }
+    // ── J. (removed — Check S is a superset covering nested calls too) ──────
 
     // ── K. SQL keyword accidentally in Python code ────────────────────────
     if (/\bNOT\s+NULL\b/.test(noComment) && !/["'][^"']*NOT NULL[^"']*["']/.test(noComment)) {
@@ -1648,17 +1636,16 @@ const checkPythonAdvanced = (lines) => {
         'Replace NOT NULL with: if value is not None:');
     }
 
-    // ── L. String passed where number expected (add / multiply context) ───
-    // detect:  add("five", ...)  where add is defined as numeric function
-    const strArgCallM = noComment.match(/^(\w+)\s*\((["'][^"']+["'])\s*(?:,|$)/);
-    if (strArgCallM && funcSigs[strArgCallM[1]]) {
-      const funcName = strArgCallM[1];
-      // Only flag if the function was defined with numeric-looking param names
-      const sig = funcSigs[funcName];
-      // Heuristic: flag only if function name has numeric connotations
-      if (/^(add|subtract|multiply|divide|sum_|total|calc|compute|average|mean)\w*$/i.test(funcName)) {
+    // ── L. String literal as first arg to numeric-named function (nested too) ──
+    // Catches: add("five"), print(add("five", 3)), result = multiply("two", 3)
+    const NUMERIC_FUNCS = /^(add|subtract|multiply|divide|sum_|total|calc|compute|average|mean)\w*$/i;
+    const strArgRe = /\b([a-zA-Z_]\w*)\s*\(\s*(["'][^"']+["'])\s*[,)]/g;
+    let saMatch;
+    while ((saMatch = strArgRe.exec(noComment)) !== null) {
+      const [, funcName, strLit] = saMatch;
+      if (NUMERIC_FUNCS.test(funcName) && (funcSigs[funcName] || /^(add|subtract|multiply|divide)$/.test(funcName))) {
         push('error', lineNum,
-          `Line ${lineNum}: "${funcName}" likely expects a number but received string literal "${strArgCallM[2]}" as first argument`,
+          `Line ${lineNum}: "${funcName}" likely expects a number but received string ${strLit} — type mismatch`,
           'Pass a numeric value instead of a string');
       }
     }
@@ -1795,6 +1782,147 @@ const checkPythonAdvanced = (lines) => {
             `Define "${name}" before this line: ${name} = <value>`);
         }
         break;
+      }
+    }
+
+    // ── V. .push() on a list — should be .append() ───────────────────────
+    if (/\.\s*push\s*\(/.test(noComment) && !/['"]\s*push\s*['"]/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Python lists have no .push() method — use .append() to add elements`,
+        'Replace .push() with .append()');
+    }
+
+    // ── W. Shadowing a built-in name ──────────────────────────────────────
+    const BUILTIN_NAMES = new Set([
+      'list','dict','set','tuple','str','int','float','bool',
+      'print','len','type','input','range','open','sum','max','min','abs',
+      'sorted','reversed','enumerate','zip','map','filter','all','any',
+      'bytes','chr','ord','hex','bin','oct','pow','round','id','hash',
+      'repr','vars','dir','iter','next','callable','getattr','setattr',
+    ]);
+    const shadowM = noComment.match(/^([a-z_]\w*)\s*=(?!=)/);
+    if (shadowM && BUILTIN_NAMES.has(shadowM[1])) {
+      push('warning', lineNum,
+        `Line ${lineNum}: "${shadowM[1]}" shadows the built-in ${shadowM[1]}() — this will break later uses of the built-in`,
+        `Rename the variable: ${shadowM[1]}_data = ... or use a more descriptive name`);
+    }
+
+    // ── X. Python 2 exception syntax: except E, var: ─────────────────────
+    if (/^except\s+[\w.]+\s*,\s*\w+\s*:/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Python 2 exception syntax "except E, var:" — use "except E as var:" in Python 3`,
+        'Replace the comma with "as": except ValueError as e:');
+    }
+
+    // ── Y. "is" compared with a literal (use == instead) ─────────────────
+    if (/\bis\s+(?:-?\d|["'])/.test(noComment) &&
+        !/\bis\s+not\b/.test(noComment) && !/\bis\s+None\b/.test(noComment)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Using "is" to compare with a literal — "is" checks object identity, not equality; use "==" instead`,
+        'Replace "is value" with "== value"');
+    }
+
+    // ── Z. Mutable default argument def f(lst=[], d={}) ──────────────────
+    if (/^def\s+\w+\s*\([^)]*=\s*[\[{]/.test(noComment)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Mutable default argument (list or dict) — shared across all calls and mutated in place; use None as default`,
+        'Use: def f(lst=None):  then inside:  if lst is None: lst = []');
+    }
+
+    // ── AA. for x in <integer_literal>: — iterating a non-iterable ───────
+    if (/^for\s+\w+\s+in\s+\d+\s*:/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Cannot iterate over an integer — wrap it with range(): "for i in range(n):"`,
+        'Replace the integer with range(n): for i in range(5):');
+    }
+
+    // ── BB. len() called on a non-sequence literal ────────────────────────
+    const lenLitM = noComment.match(/\blen\s*\(\s*(-?\d[\d.]*|True|False)\s*\)/);
+    if (lenLitM) {
+      push('error', lineNum,
+        `Line ${lineNum}: TypeError — len() expects a sequence (str/list/tuple/dict/set) but received ${lenLitM[1]}`,
+        'Pass a sequence: len("hello") or len([1, 2, 3])');
+    }
+
+    // ── CC. range() called with a float argument ──────────────────────────
+    if (/\brange\s*\(\s*\d+\.\d+/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: TypeError — range() requires integer arguments, not float`,
+        'Convert to int first: range(int(n)) or use a whole number');
+    }
+
+    // ── DD. Unreachable code — statement at same indent after return/break/etc ──
+    if (i > 0) {
+      const prevRaw   = lines[i - 1] || '';
+      const prevNC    = stripPyComment(prevRaw).trim();
+      const prevInd   = (prevRaw.match(/^(\s*)/) || ['',''])[1].length;
+      const curInd    = (raw.match(/^(\s*)/)     || ['',''])[1].length;
+      const exitWord  = (prevNC.match(/^(return|break|continue|raise)\b/) || [])[1];
+      if (exitWord && curInd === prevInd &&
+          noComment && !/^(else|elif|except|finally|def|class|#)\b/.test(noComment)) {
+        push('warning', lineNum,
+          `Line ${lineNum}: Unreachable code — this line never executes because the previous statement always exits (${exitWord})`,
+          `Remove the unreachable code or move it before the ${exitWord} statement`);
+      }
+    }
+
+    // ── EE. % format string placeholder / argument count mismatch ─────────
+    const fmtM = noComment.match(/(["'])([^"']*%[^"']*)(\1)\s*%\s*\(([^)]*)\)/);
+    if (fmtM) {
+      const fmtStr = fmtM[2];
+      const argPart = fmtM[4];
+      const placeholders = (fmtStr.match(/%[sdiufFeEgGxXob]/g) || []).length;
+      const argCount = argPart.trim() === '' ? 0
+        : argPart.split(',').filter(a => a.trim()).length;
+      if (placeholders > 0 && placeholders !== argCount) {
+        push('error', lineNum,
+          `Line ${lineNum}: String format mismatch — format string has ${placeholders} placeholder${placeholders > 1 ? 's' : ''} but ${argCount} argument${argCount !== 1 ? 's were' : ' was'} provided`,
+          'Match the number of % placeholders to the number of values in the tuple');
+      }
+    }
+
+    // ── FF. return at module level (indent = 0, not inside any function) ──
+    if (/^return\b/.test(noComment) && indent === 0) {
+      push('error', lineNum,
+        `Line ${lineNum}: "return" at module level — return can only be used inside a function or method`,
+        'Move return inside a def function, or remove it');
+    }
+
+    // ── GG. __init__ returning a non-None value ───────────────────────────
+    if (/^def\s+__init__\s*\(/.test(noComment)) {
+      // peek ahead for a return <value> inside the same block
+      for (let k = i + 1; k < Math.min(i + 30, lines.length); k++) {
+        const peekNC = stripPyComment(lines[k]).trim();
+        const peekInd = (lines[k].match(/^(\s*)/) || ['',''])[1].length;
+        if (peekInd <= indent && peekNC) break; // exited the function block
+        if (/^return\s+(?!None\b)\S/.test(peekNC)) {
+          push('error', k + 1,
+            `Line ${k + 1}: "__init__" must not return a value — constructors always return None implicitly`,
+            'Remove the return value from __init__; use self.attribute = value to store data');
+          break;
+        }
+      }
+    }
+
+    // ── HH. x += 1 where x was never assigned (augmented assign to undefined) ──
+    // Note: we bypass PYTHON_BUILTINS here because it contains common letter aliases
+    // (x, y, z, i, …) that are NOT real builtins; use a hard-coded real-builtins guard.
+    const HH_REAL_BUILTINS = new Set([
+      'print','len','range','list','dict','set','tuple','str','int','float','bool',
+      'type','isinstance','input','open','super','object','abs','all','any','sum',
+      'max','min','map','filter','sorted','reversed','enumerate','zip','hash','id',
+      'repr','vars','dir','iter','next','chr','ord','hex','bin','oct','pow','round',
+      'bytes','format','eval','exec','compile','globals','locals','getattr','setattr',
+      'hasattr','delattr','callable','classmethod','staticmethod','property','slice',
+    ]);
+    const augM = noComment.match(/^([a-z_]\w*)\s*\+=\s*/);
+    if (augM) {
+      const varName = augM[1];
+      // Use allAssigned (actual code assignments) not defined (starts with all PYTHON_BUILTINS)
+      if (!allAssigned.has(varName) && !HH_REAL_BUILTINS.has(varName)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "${varName}" used in "+=" but was never assigned a value — this will cause a NameError`,
+          `Assign an initial value first: ${varName} = 0  then use ${varName} += 1`);
       }
     }
   }
