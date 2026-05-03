@@ -1370,6 +1370,311 @@ const checkEmptyFunctions = (lines) => {
   return errors;
 };
 
+// ── Python built-in names (never flag these as undefined) ─────────────────────
+const PYTHON_BUILTINS = new Set([
+  'print','len','range','list','dict','set','tuple','str','int','float','bool','bytes',
+  'type','isinstance','issubclass','hasattr','getattr','setattr','delattr','callable',
+  'input','open','super','object','None','True','False','abs','all','any','ascii',
+  'bin','chr','compile','complex','delattr','dir','divmod','enumerate','eval','exec',
+  'filter','format','frozenset','globals','hash','help','hex','id','iter','locals',
+  'map','max','min','next','oct','ord','pow','print','property','repr','reversed',
+  'round','setattr','slice','sorted','staticmethod','sum','vars','zip','classmethod',
+  'Exception','ValueError','TypeError','KeyError','IndexError','AttributeError',
+  'RuntimeError','StopIteration','FileNotFoundError','OSError','IOError','ImportError',
+  'NameError','NotImplementedError','OverflowError','PermissionError','RecursionError',
+  'SyntaxError','UnicodeError','ZeroDivisionError','AssertionError','BufferError',
+  'EOFError','GeneratorExit','MemoryError','ReferenceError','SystemError','SystemExit',
+  'ArithmeticError','LookupError','BaseException','ConnectionError','TimeoutError',
+  'NotImplemented','Ellipsis','__name__','__file__','__doc__','__package__','__spec__',
+  '__builtins__','__all__','self','cls','args','kwargs',
+  // Very common aliases / modules used without explicit import in educational code
+  'math','os','sys','re','json','csv','datetime','time','random','collections',
+  'functools','itertools','pathlib','shutil','subprocess','threading','logging',
+  'numpy','np','pandas','pd','matplotlib','plt','scipy','sklearn','tf','torch',
+  'requests','flask','django','sqlalchemy','abc','copy','io','struct','socket',
+  'typing','dataclasses','enum','contextlib','warnings','traceback','inspect',
+  // Common test/data names
+  'x','y','z','n','i','j','k','v','a','b','c','d','e','f','g','h','t','s','m',
+]);
+
+// ── Typo map: wrong_name → correct_name ──────────────────────────────────────
+const PY_TYPO_MAP = {
+  prnt: 'print', prnit: 'print', pritn: 'print', pint: 'print',
+  lenght: 'len', lengt: 'len', lenth: 'len',
+  retrun: 'return', reutrn: 'return',
+  ture: 'True', tru: 'True', flase: 'False', fasle: 'False', fase: 'False',
+  noen: 'None', noe: 'None',
+};
+
+// ── checkPythonAdvanced: structural + semantic detectors ──────────────────────
+const checkPythonAdvanced = (lines) => {
+  const errors = [];
+  const seen = new Set();
+  const push = (type, line, message, fix) => {
+    const key = `${line}:${message.slice(0, 60)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    errors.push({ type, line, language: 'python', message, fix });
+  };
+
+  // ── Pass 1: build a simple symbol table ──────────────────────────────────
+  const defined = new Set(PYTHON_BUILTINS);
+  const funcSigs = {}; // funcName → {line, requiredCount}
+  const classNames = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const noComment = stripPyComment(raw).trim();
+
+    // import X  /  import X as Y  /  from X import Y, Z
+    const impM = noComment.match(/^import\s+(\S+?)(?:\s+as\s+(\w+))?$/);
+    if (impM) { defined.add(impM[2] || impM[1].split('.')[0]); }
+    const fromM = noComment.match(/^from\s+\S+\s+import\s+(.+)/);
+    if (fromM) {
+      fromM[1].split(',').forEach(nm => {
+        const alias = nm.trim().split(/\s+as\s+/).pop().trim();
+        if (/^\w+$/.test(alias)) defined.add(alias);
+      });
+    }
+    // def name(...)
+    const defM = noComment.match(/^def\s+(\w+)\s*\(([^)]*)\)/);
+    if (defM) {
+      defined.add(defM[1]);
+      const params = defM[2].trim();
+      if (params === '') {
+        funcSigs[defM[1]] = { line: i + 1, requiredCount: 0 };
+      } else {
+        const paramList = params.split(',').map(p => p.trim()).filter(Boolean);
+        // required = params without defaults and not *args/**kwargs
+        const required = paramList.filter(p => !p.includes('=') && !p.startsWith('*'));
+        const count = required.filter(p => p !== 'self' && p !== 'cls').length;
+        funcSigs[defM[1]] = { line: i + 1, requiredCount: count };
+      }
+      // Also add each parameter to defined
+      if (defM[2].trim()) {
+        defM[2].split(',').forEach(p => {
+          const pname = p.trim().split(/[=:*]/)[0].trim().replace(/^\*+/, '');
+          if (pname) defined.add(pname);
+        });
+      }
+    }
+    // class Name
+    const clsM = noComment.match(/^class\s+(\w+)/);
+    if (clsM) { defined.add(clsM[1]); classNames.add(clsM[1]); }
+    // name = ...  /  name, name2 = ...
+    const assignM = noComment.match(/^(\w+(?:\s*,\s*\w+)*)\s*=(?!=)/);
+    if (assignM) {
+      assignM[1].split(',').forEach(nm => {
+        const t = nm.trim();
+        if (/^\w+$/.test(t)) defined.add(t);
+      });
+    }
+    // for var in ...  /  for var, var2 in ...
+    const forM = noComment.match(/^for\s+(\w+(?:\s*,\s*\w+)*)\s+in\b/);
+    if (forM) {
+      forM[1].split(',').forEach(nm => {
+        const t = nm.trim();
+        if (/^\w+$/.test(t)) defined.add(t);
+      });
+    }
+    // with X as var
+    const withM = noComment.match(/^with\s+.+\bas\s+(\w+)/);
+    if (withM) defined.add(withM[1]);
+    // except ExcType as var
+    const excM = noComment.match(/^except\s+\w+\s+as\s+(\w+)/);
+    if (excM) defined.add(excM[1]);
+  }
+
+  // ── Pass 2: per-line detectors ────────────────────────────────────────────
+  let insideExcept = false;
+  let exceptIndent = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNum = i + 1;
+    const raw = lines[i];
+    const noComment = stripPyComment(raw).trim();
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const indent = (raw.match(/^(\s*)/) || ['', ''])[1].length;
+
+    // Track except context for bare-raise check
+    if (/^except\b/.test(noComment)) {
+      insideExcept = true;
+      exceptIndent = indent;
+    } else if (insideExcept && indent <= exceptIndent && /^\S/.test(raw[0] || '')) {
+      insideExcept = false;
+    }
+
+    // ── A. Common lowercase typos used as identifiers ─────────────────────
+    for (const [typo, correct] of Object.entries(PY_TYPO_MAP)) {
+      // Only flag if used as a function call or standalone value (not inside a string)
+      const re = new RegExp(`\\b${typo}\\b`);
+      if (re.test(noComment)) {
+        // Skip if it's inside a string (crude heuristic: after an odd number of quotes)
+        const before = noComment.split(re)[0];
+        const singleQ = (before.match(/'/g) || []).length % 2;
+        const doubleQ = (before.match(/"/g) || []).length % 2;
+        if (!singleQ && !doubleQ) {
+          push('error', lineNum,
+            `Line ${lineNum}: "${typo}" is not defined — did you mean "${correct}"?`,
+            `Replace "${typo}" with "${correct}"`);
+        }
+      }
+    }
+
+    // ── B. Duplicate function parameter names ─────────────────────────────
+    const defParamM = noComment.match(/^def\s+\w+\s*\(([^)]+)\)/);
+    if (defParamM) {
+      const params = defParamM[1].split(',')
+        .map(p => p.trim().split(/[=:]/)[0].trim().replace(/^\*+/, ''))
+        .filter(p => p && p !== 'self' && p !== 'cls');
+      const paramSet = new Set(params);
+      if (paramSet.size < params.length) {
+        const dups = params.filter((p, idx) => params.indexOf(p) !== idx);
+        push('error', lineNum,
+          `Line ${lineNum}: Duplicate parameter name "${dups[0]}" in function definition — each parameter must be unique`,
+          'Rename duplicate parameters so each has a unique name');
+      }
+    }
+
+    // ── C. Duplicate keys in dict literal (string or integer keys) ────────
+    // Match simple one-line dicts: {"key1": v, "key1": v2}  or  {1: v, 1: v2}
+    const dictKeyRe = /\{([^{}]+)\}/g;
+    let dm;
+    while ((dm = dictKeyRe.exec(noComment)) !== null) {
+      const inner = dm[1];
+      // Extract string or integer keys
+      const keyMatches = [...inner.matchAll(/(?:^|,)\s*(["']\w+["']|\d+)\s*:/g)].map(m => m[1]);
+      const keySet = new Set(keyMatches);
+      if (keySet.size < keyMatches.length) {
+        const dups = keyMatches.filter((k, idx) => keyMatches.indexOf(k) !== idx);
+        push('error', lineNum,
+          `Line ${lineNum}: Duplicate key ${dups[0]} in dict literal — later value silently overwrites earlier one`,
+          'Use unique keys in the dictionary');
+      }
+    }
+
+    // ── D. Tuple unpacking count mismatch ─────────────────────────────────
+    // (a, b) = (1, 2, 3)
+    const unpackM = noComment.match(/^\(([^)]+)\)\s*=\s*\(([^)]+)\)/);
+    if (unpackM) {
+      const lhs = unpackM[1].split(',').filter(s => s.trim()).length;
+      const rhs = unpackM[2].split(',').filter(s => s.trim()).length;
+      if (lhs !== rhs) {
+        push('error', lineNum,
+          `Line ${lineNum}: Tuple unpacking mismatch — left side has ${lhs} variable${lhs > 1 ? 's' : ''} but right side has ${rhs} value${rhs > 1 ? 's' : ''} (not enough to unpack)`,
+          `Match the number of variables to the number of values, or use a, *rest = ... for variable-length`);
+      }
+    }
+
+    // ── E. List inside set literal (unhashable type) ──────────────────────
+    // s = {[1,2], 3}  — a list [] inside a {set}
+    if (/=\s*\{[^}]*\[/.test(noComment) && !/=\s*\{[^}]*:[^}]*\[/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Unhashable type — a list ([...]) inside a set literal is not allowed; lists cannot be set elements`,
+        'Use a tuple instead: s = {(1, 2), 3}');
+    }
+
+    // ── F. Bare "raise" outside of an except block ────────────────────────
+    if (/^raise\s*$/.test(noComment) && !insideExcept) {
+      push('error', lineNum,
+        `Line ${lineNum}: Bare "raise" outside except block — bare raise re-raises the current exception and is only valid inside an except handler`,
+        'Add an exception: raise ValueError("message")  or move inside an except block');
+    }
+
+    // ── G. .append() / .remove() / .index() called with no arguments ──────
+    const noArgCalls = noComment.match(/\.\s*(append|remove|index|insert|count|extend|add|discard|get|pop)\s*\(\s*\)/g) || [];
+    for (const call of noArgCalls) {
+      const method = call.match(/\.\s*(\w+)/)[1];
+      const required = { append: 1, remove: 1, index: 1, insert: 2, extend: 1, add: 1, discard: 1, get: 1 };
+      if (required[method]) {
+        push('error', lineNum,
+          `Line ${lineNum}: ${method}() requires ${required[method] > 1 ? required[method] + ' arguments' : 'an argument'} — called here with none`,
+          `Pass the required argument: .${method}(value)`);
+      }
+    }
+
+    // ── H. math.sqrt / math.log / math.pow called with a string literal ───
+    const mathStrM = noComment.match(/\bmath\s*\.\s*(sqrt|log|log2|log10|pow|exp|sin|cos|tan|floor|ceil)\s*\(\s*(["'][^"']*["'])/);
+    if (mathStrM) {
+      push('error', lineNum,
+        `Line ${lineNum}: Type error — math.${mathStrM[1]}() expects a number but received a string literal "${mathStrM[2]}"`,
+        `Pass a number instead: math.${mathStrM[1]}(value) where value is int or float`);
+    }
+
+    // ── I. Inheritance from undefined class ───────────────────────────────
+    const clsInheritM = noComment.match(/^class\s+\w+\s*\((\w+)\s*\)/);
+    if (clsInheritM) {
+      const base = clsInheritM[1];
+      if (base !== 'object' && !defined.has(base) && !PYTHON_BUILTINS.has(base)) {
+        push('error', lineNum,
+          `Line ${lineNum}: Class inherits from "${base}" but "${base}" is not defined anywhere in this file`,
+          `Define "${base}" before this class, or import it`);
+      }
+    }
+
+    // ── J. Wrong argument count for user-defined functions ────────────────
+    // Only check simple calls: funcname(arg1, arg2, ...)  at statement level
+    const callM = noComment.match(/^(\w+)\s*\(([^)]*)\)\s*$/);
+    if (callM && funcSigs[callM[1]]) {
+      const { requiredCount, line: defLine } = funcSigs[callM[1]];
+      const argStr = callM[2].trim();
+      const argCount = argStr === '' ? 0 : argStr.split(',').length;
+      if (argCount < requiredCount) {
+        push('error', lineNum,
+          `Line ${lineNum}: "${callM[1]}" expects at least ${requiredCount} argument${requiredCount > 1 ? 's' : ''} but was called with ${argCount} (defined on line ${defLine})`,
+          `Pass the required arguments: ${callM[1]}(${Array(requiredCount).fill('arg').map((a,i)=>a+(i+1)).join(', ')})`);
+      }
+    }
+
+    // ── K. SQL keyword accidentally in Python code ────────────────────────
+    if (/\bNOT\s+NULL\b/.test(noComment) && !/["'][^"']*NOT NULL[^"']*["']/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "NOT NULL" is a SQL constraint, not valid Python — use "is not None" to check for None`,
+        'Replace NOT NULL with: if value is not None:');
+    }
+
+    // ── L. String passed where number expected (add / multiply context) ───
+    // detect:  add("five", ...)  where add is defined as numeric function
+    const strArgCallM = noComment.match(/^(\w+)\s*\((["'][^"']+["'])\s*(?:,|$)/);
+    if (strArgCallM && funcSigs[strArgCallM[1]]) {
+      const funcName = strArgCallM[1];
+      // Only flag if the function was defined with numeric-looking param names
+      const sig = funcSigs[funcName];
+      // Heuristic: flag only if function name has numeric connotations
+      if (/^(add|subtract|multiply|divide|sum_|total|calc|compute|average|mean)\w*$/i.test(funcName)) {
+        push('error', lineNum,
+          `Line ${lineNum}: "${funcName}" likely expects a number but received string literal "${strArgCallM[2]}" as first argument`,
+          'Pass a numeric value instead of a string');
+      }
+    }
+
+    // ── M. "return" with no value in a non-void context ──────────────────
+    // def bar():  ...  return   ← bare return, no value
+    if (/^return\s*$/.test(noComment)) {
+      // Look back for the enclosing def
+      let enclosingFunc = null;
+      for (let j = i - 1; j >= 0 && j >= i - 50; j--) {
+        const pl = lines[j];
+        const pm = pl.match(/^\s*def\s+(\w+)\s*\(/);
+        if (pm) { enclosingFunc = pm[1]; break; }
+      }
+      if (enclosingFunc && !/^(setup|teardown|configure|init|cleanup|on_\w+|handle_\w+)$/.test(enclosingFunc)) {
+        // Only flag if the function name implies it should return a value
+        if (/^(get|fetch|load|read|calc|compute|build|create|make|find|search|parse|convert|format|generate)\w*/i.test(enclosingFunc)) {
+          push('warning', lineNum,
+            `Line ${lineNum}: "return" with no value in "${enclosingFunc}" — function name implies a value should be returned`,
+            'Add a return value: return result');
+        }
+      }
+    }
+  }
+
+  return errors;
+};
+
 const analyzePython = (code) => {
   const normalized = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines  = normalized.split('\n');
@@ -1377,6 +1682,7 @@ const analyzePython = (code) => {
     ...checkPythonLines(lines),
     ...checkUndefinedCaps(lines),
     ...checkEmptyFunctions(lines),
+    ...checkPythonAdvanced(lines),
   ];
 
   // Apply auto-fixer to generate fixedCode
@@ -2009,18 +2315,37 @@ const groqAIFix = (code, language, errors) => new Promise((resolve) => {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return resolve(null);
 
-  // For very large files, send a condensed version with just the erroneous sections
-  const codeToSend = code.length > 4000 ? code.slice(0, 4000) + '\n-- [truncated for brevity]' : code;
-  const errorSummary = errors.slice(0, 12).map(e => `- ${e.message}`).join('\n');
-  const prompt = `You are a ${language.toUpperCase()} syntax expert. Fix all errors in the code below.\n\nDetected errors:\n${errorSummary}\n\nCode:\n\`\`\`${language}\n${codeToSend}\n\`\`\`\n\nOutput ONLY the corrected code inside one \`\`\`${language} ... \`\`\` block. No explanations, no comments about what changed.`;
+  // Use a larger, smarter model for Python/R; 8b-instant for SQL (faster)
+  const model = (language === 'python' || language === 'r')
+    ? 'llama-3.3-70b-versatile'
+    : 'llama-3.1-8b-instant';
+
+  // For very large files send only the erroneous sections with 5-line context
+  let codeToSend = code;
+  if (code.length > 6000) {
+    const codeLines = code.split('\n');
+    const errorLines = new Set(errors.map(e => e.line).filter(Boolean));
+    const contextLines = new Set();
+    for (const el of errorLines) {
+      for (let k = Math.max(0, el - 6); k <= Math.min(codeLines.length - 1, el + 4); k++) {
+        contextLines.add(k);
+      }
+    }
+    const selectedLines = [...contextLines].sort((a, b) => a - b);
+    const numbered = selectedLines.map(idx => `${idx + 1}: ${codeLines[idx]}`).join('\n');
+    codeToSend = `# [Showing ${selectedLines.length} lines around errors — total file is ${codeLines.length} lines]\n` + numbered;
+  }
+
+  const errorSummary = errors.slice(0, 15).map(e => `- ${e.message}`).join('\n');
+  const prompt = `You are a ${language.toUpperCase()} syntax expert. Fix ALL errors listed below in the code.\n\nDetected errors:\n${errorSummary}\n\nCode:\n\`\`\`${language}\n${codeToSend}\n\`\`\`\n\nRules:\n1. Output ONLY the corrected, complete code.\n2. Wrap it in a single \`\`\`${language} ... \`\`\` fenced block.\n3. Never add explanations, comments about changes, or any prose outside the code block.`;
 
   const body = JSON.stringify({
-    model: 'llama-3.1-8b-instant',
+    model,
     messages: [
-      { role: 'system', content: `You are a precise ${language.toUpperCase()} code fixer. Always wrap your output in a single fenced code block. Never add explanations.` },
+      { role: 'system', content: `You are a precise ${language.toUpperCase()} code fixer. Output ONLY a single fenced \`\`\`${language} ... \`\`\` code block. No explanations whatsoever.` },
       { role: 'user', content: prompt },
     ],
-    max_tokens: 4096,
+    max_tokens: 8192,
     temperature: 0.05,
   });
 
