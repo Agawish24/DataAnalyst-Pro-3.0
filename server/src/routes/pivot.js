@@ -4,61 +4,198 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-const aggregate = (values, func) => {
-  const nums = values.map(Number).filter(n => !isNaN(n));
-  if (!nums.length) return null;
-  switch (func) {
-    case 'sum': return nums.reduce((a, b) => a + b, 0);
-    case 'avg': case 'mean': return nums.reduce((a, b) => a + b, 0) / nums.length;
-    case 'count': return values.length;
-    case 'count_distinct': return new Set(values).size;
-    case 'min': return Math.min(...nums);
-    case 'max': return Math.max(...nums);
-    case 'median': { const s = [...nums].sort((a,b)=>a-b); const m = Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; }
-    case 'stddev': { const mean = nums.reduce((a,b)=>a+b,0)/nums.length; return Math.sqrt(nums.reduce((a,b)=>a+(b-mean)**2,0)/nums.length); }
-    default: return nums.reduce((a, b) => a + b, 0);
-  }
+// ── Hard limits ────────────────────────────────────────────────────────────
+const MAX_ROW_FIELDS = 3;
+const MAX_COL_FIELDS = 2;
+const MAX_CELLS      = 2000;   // rowKeys × colKeys
+const MAX_COL_KEYS   = 50;     // distinct values in col dimension
+const MAX_ROW_KEYS   = 200;    // distinct values in row dimension
+const STMT_TIMEOUT   = 25000;  // 25 s PostgreSQL statement timeout
+
+// ── Format a composite key from multiple field values ─────────────────────
+const compositeKey = (fields) =>
+  fields.length === 1
+    ? `COALESCE("${fields[0]}"::text,'(null)')`
+    : `CONCAT_WS(' | ', ${fields.map(f => `COALESCE("${f}"::text,'(null)')`).join(', ')})`;
+
+// ── Validate column names against schema (SQL injection guard) ────────────
+const validateCols = (cols, schema) => {
+  const valid = Array.isArray(schema)
+    ? schema.map(c => c.name)
+    : Object.keys(schema || {});
+  const bad = cols.filter(c => !valid.includes(c));
+  if (bad.length) throw new Error(`Invalid columns: ${bad.join(', ')}`);
 };
 
+const SAFE_AGG = {
+  sum: 'SUM', avg: 'AVG', count: 'COUNT', min: 'MIN', max: 'MAX',
+  count_distinct: 'COUNT DISTINCT',
+  median: 'PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ',
+  stddev: 'STDDEV',
+};
+
+const buildAggExpr = (func, field) => {
+  if (func === 'count') return 'COUNT(*)';
+  if (func === 'count_distinct') return `COUNT(DISTINCT "${field}"::text)`;
+  if (func === 'median') return `PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "${field}"::numeric)`;
+  const fn = SAFE_AGG[func] || 'SUM';
+  return `${fn}("${field}"::numeric)`;
+};
+
+// ── Core pivot computation using SQL GROUP BY (scalable) ─────────────────
 const runCompute = async (datasetId, body, res) => {
+  let client;
   try {
-    const { row_fields = [], col_fields = [], value_field, values, aggregator = 'sum', filters = {} } = body;
-    const vf = value_field || values;
-    if (!vf) return res.status(400).json({ error: 'value_field required' });
-    const value_field_resolved = vf;
+    const {
+      row_fields = [], col_fields = [],
+      value_field, values: vf2,
+      rowFields: rf2, colFields: cf2,    // accept both naming conventions
+      aggregator = 'sum', filters = {},
+    } = body;
 
-    const data = await pool.query(`SELECT * FROM data_${datasetId} LIMIT 50000`);
-    let rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+    // Accept snake_case or camelCase field names
+    const rowF  = (row_fields.length ? row_fields : (rf2 || [])).slice(0, MAX_ROW_FIELDS);
+    const colF  = (col_fields.length ? col_fields : (cf2 || [])).slice(0, MAX_COL_FIELDS);
+    const valF  = value_field || vf2;
 
-    for (const [col, val] of Object.entries(filters)) {
-      if (val !== '' && val !== null) rows = rows.filter(r => String(r[col]) === String(val));
+    if (!valF) return res.status(400).json({ error: 'value_field required' });
+    if (!rowF.length) return res.status(400).json({ error: 'At least one row field required' });
+
+    // Validate column names against schema
+    const dsResult = await pool.query('SELECT schema, row_count FROM datasets WHERE id=$1', [datasetId]);
+    if (!dsResult.rows.length) return res.status(404).json({ error: 'Dataset not found' });
+    const schema = dsResult.rows[0].schema;
+    const rowCount = dsResult.rows[0].row_count || 0;
+
+    const allCols = [...new Set([...rowF, ...colF, valF])];
+    validateCols(allCols, schema);
+
+    // ── Cardinality pre-check ───────────────────────────────────────────
+    client = await pool.connect();
+    await client.query(`SET statement_timeout = ${STMT_TIMEOUT}`);
+
+    // Count distinct row combos
+    const rowDistinctSQL = `SELECT COUNT(DISTINCT ${compositeKey(rowF)}) AS n FROM "data_${datasetId}"`;
+    const rowDistinct = await client.query(rowDistinctSQL);
+    const nRowKeys = parseInt(rowDistinct.rows[0].n);
+
+    let nColKeys = 1;
+    if (colF.length) {
+      const colDistinctSQL = `SELECT COUNT(DISTINCT ${compositeKey(colF)}) AS n FROM "data_${datasetId}"`;
+      const colDistinct = await client.query(colDistinctSQL);
+      nColKeys = parseInt(colDistinct.rows[0].n);
     }
 
-    const rowKeys = [...new Set(rows.map(r => row_fields.map(f => r[f]).join(' | ')))].sort();
-    const colKeys = col_fields.length ? [...new Set(rows.map(r => col_fields.map(f => r[f]).join(' | ')))].sort() : ['Total'];
+    if (nRowKeys > MAX_ROW_KEYS) {
+      return res.status(400).json({
+        error: `Too many row groups: ${nRowKeys.toLocaleString()} distinct combinations (max ${MAX_ROW_KEYS}). ` +
+               `Use fewer row fields or add filters to narrow the data.`,
+        rowKeys: nRowKeys, colKeys: nColKeys,
+      });
+    }
+    if (nColKeys > MAX_COL_KEYS) {
+      return res.status(400).json({
+        error: `Too many column groups: ${nColKeys.toLocaleString()} distinct combinations (max ${MAX_COL_KEYS}). ` +
+               `Use fewer column fields or switch column fields to a lower-cardinality column.`,
+        rowKeys: nRowKeys, colKeys: nColKeys,
+      });
+    }
+    const estimatedCells = nRowKeys * nColKeys;
+    if (estimatedCells > MAX_CELLS) {
+      return res.status(400).json({
+        error: `Estimated pivot size too large: ${nRowKeys} rows × ${nColKeys} cols = ${estimatedCells.toLocaleString()} cells (max ${MAX_CELLS.toLocaleString()}). ` +
+               `Reduce row or column fields, or apply filters.`,
+        rowKeys: nRowKeys, colKeys: nColKeys,
+      });
+    }
 
-    const matrix = {};
-    const rowTotals = {};
-    const colTotals = {};
+    // ── Build WHERE clause from filters ────────────────────────────────
+    const filterEntries = Object.entries(filters).filter(([, v]) => v !== '' && v !== null);
+    const whereParts = filterEntries.map(([col], i) => `"${col}"::text = $${i + 1}`);
+    const filterParams = filterEntries.map(([, v]) => v);
+    const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
-    for (const rk of rowKeys) {
-      matrix[rk] = {};
-      for (const ck of colKeys) {
-        const matching = rows.filter(r => {
-          const rMatch = row_fields.every((f, i) => String(r[f]) === rk.split(' | ')[i]);
-          const cMatch = col_fields.length === 0 || col_fields.every((f, i) => String(r[f]) === ck.split(' | ')[i]);
-          return rMatch && cMatch;
-        });
-        const val = aggregate(matching.map(r => r[value_field_resolved]), aggregator);
-        matrix[rk][ck] = val !== null ? +val.toFixed(4) : null;
-        rowTotals[rk] = (rowTotals[rk] || 0) + (val || 0);
-        colTotals[ck] = (colTotals[ck] || 0) + (val || 0);
+    // ── SQL GROUP BY pivot ─────────────────────────────────────────────
+    const rowKeyExpr = compositeKey(rowF);
+    const aggExpr    = buildAggExpr(aggregator, valF);
+
+    let matrix = {};
+    let rowKeys, colKeys;
+    let rowTotals = {}, colTotals = {};
+
+    if (colF.length === 0) {
+      // Simple aggregation: no col dimension
+      const sql = `
+        SELECT ${rowKeyExpr} AS row_key,
+               ${aggExpr} AS val
+        FROM "data_${datasetId}"
+        ${whereClause}
+        GROUP BY row_key
+        ORDER BY row_key
+        LIMIT ${MAX_ROW_KEYS}
+      `;
+      const r = await client.query(sql, filterParams);
+      rowKeys = r.rows.map(row => row.row_key);
+      colKeys = ['Total'];
+      for (const row of r.rows) {
+        const rk = row.row_key;
+        const v  = row.val !== null ? parseFloat(parseFloat(row.val).toFixed(4)) : null;
+        matrix[rk] = { Total: v };
+        rowTotals[rk] = v || 0;
+        colTotals['Total'] = (colTotals['Total'] || 0) + (v || 0);
+      }
+    } else {
+      // Two-dimensional: fetch all (rowKey, colKey, value) triples
+      const colKeyExpr = compositeKey(colF);
+      const sql = `
+        SELECT ${rowKeyExpr} AS row_key,
+               ${colKeyExpr} AS col_key,
+               ${aggExpr}    AS val
+        FROM "data_${datasetId}"
+        ${whereClause}
+        GROUP BY row_key, col_key
+        ORDER BY row_key, col_key
+      `;
+      const r = await client.query(sql, filterParams);
+
+      rowKeys = [...new Set(r.rows.map(row => row.row_key))];
+      colKeys = [...new Set(r.rows.map(row => row.col_key))];
+
+      // Initialize matrix
+      for (const rk of rowKeys) {
+        matrix[rk] = {};
+        for (const ck of colKeys) matrix[rk][ck] = null;
+      }
+
+      // Fill
+      for (const row of r.rows) {
+        const rk = row.row_key;
+        const ck = row.col_key;
+        const v  = row.val !== null ? parseFloat(parseFloat(row.val).toFixed(4)) : null;
+        matrix[rk][ck] = v;
+        rowTotals[rk]  = (rowTotals[rk] || 0) + (v || 0);
+        colTotals[ck]  = (colTotals[ck] || 0) + (v || 0);
       }
     }
 
-    const grandTotal = Object.values(rowTotals).reduce((a, b) => a + b, 0);
-    res.json({ rowKeys, colKeys, matrix, rowTotals, colTotals, grandTotal: +grandTotal.toFixed(4), aggregator, valueField: value_field_resolved, rowCount: rows.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    // Round totals
+    for (const k of Object.keys(rowTotals)) rowTotals[k] = parseFloat(rowTotals[k].toFixed(4));
+    for (const k of Object.keys(colTotals)) colTotals[k] = parseFloat(colTotals[k].toFixed(4));
+    const grandTotal = parseFloat(Object.values(rowTotals).reduce((a, b) => a + b, 0).toFixed(4));
+
+    res.json({
+      rowKeys, colKeys, matrix, rowTotals, colTotals, grandTotal,
+      aggregator, valueField: valF,
+      rowCount, nRowKeys, nColKeys, cells: nRowKeys * nColKeys,
+    });
+  } catch (err) {
+    if (err.message?.includes('statement timeout') || err.code === '57014') {
+      return res.status(408).json({ error: 'Query timed out (25 s). Too many rows or field combinations — apply filters or reduce fields.' });
+    }
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.release();
+  }
 };
 
 router.post('/compute', authenticate, async (req, res) => {
@@ -74,7 +211,10 @@ router.post('/:datasetId/compute', authenticate, async (req, res) => {
 router.post('/save', authenticate, async (req, res) => {
   try {
     const { name, dataset_id, rows_fields, cols_fields, value_field, aggregator } = req.body;
-    const r = await pool.query('INSERT INTO pivot_configs (name, dataset_id, rows_fields, cols_fields, value_field, aggregator, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [name, dataset_id, JSON.stringify(rows_fields), JSON.stringify(cols_fields), value_field, aggregator, req.user.id]);
+    const r = await pool.query(
+      'INSERT INTO pivot_configs (name, dataset_id, rows_fields, cols_fields, value_field, aggregator, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [name, dataset_id, JSON.stringify(rows_fields), JSON.stringify(cols_fields), value_field, aggregator, req.user.id]
+    );
     res.status(201).json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
