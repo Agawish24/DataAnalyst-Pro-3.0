@@ -26,13 +26,21 @@ A full-stack enterprise data analytics suite with React+Vite frontend, Node.js/E
 
 ## Demo Datasets
 
-| ID | Name | Rows | Columns |
-|----|------|------|---------|
-| 1 | Sales Performance 2023 | 500 | 12 (sale_id, date, region, product, channel, quantity, unit_price, discount, revenue, cost, profit, customer_id) |
-| 2 | HR Employee Analytics | 300 | 16 (employee_id, first_name, last_name, age, department, position, level, salary, hire_date, region, performance_score, satisfaction, years_tenure, status, education, date) |
-| 3 | Financial Time Series 2023 | 365 | 8 (day_index, date, open, high, low, close, volume, market_cap) |
+| ID | Name | Rows | Columns | Notes |
+|----|------|------|---------|-------|
+| 1 | Sales Performance 2023 | 500 | 14 | Has lat/lng for geo maps; sale_id is INTEGER |
+| 2 | HR Employee Analytics | 300 | 16 | |
+| 3 | Financial Time Series 2023 | 365 | 8 | OHLCV stock data; good for forecasting |
+| 4 | E-Commerce Orders 2023 | 1000 | 15 | |
+| 5 | Marketing Campaigns 2023 | 1000 | 13 | |
+| 6 | IoT Sensor Telemetry 2024 | 1000 | 12 | |
+| 7 | Customer Churn Analytics | 1000 | 14 | Best for AutoML/classification (target: churned) |
+
+**data_1 columns**: sale_id(integer), date, region, product, channel, quantity, unit_price, discount, revenue, cost, profit, customer_id, lat, lng
 
 **Critical**: Dataset schema is always stored as `[{name, type}]` array format in PostgreSQL JSONB. Never object format. All frontend pages handle both formats defensively.
+
+**Critical**: `selectedDataset` is aliased to `activeDataset` in DataContext — both work. DataContext exports: `{datasets, activeDataset, selectedDataset, loading, fetchDatasets, uploadDataset, deleteDataset, selectDataset, setActiveDataset}`
 
 ## Navigation Structure (v5)
 
@@ -249,3 +257,12 @@ A full-stack enterprise data analytics suite with React+Vite frontend, Node.js/E
 4. **Route paths**: Pivot uses `POST /api/pivot/:datasetId/compute` with `{row_fields, col_fields, value_field, aggregator}`. Lineage summary uses `GET /api/lineage/datasets`. Masking all-rules uses `GET /api/masking/rules`.
 5. **NL-to-SQL**: Both `/query` (accepts `question`+`datasetId`) and `/convert` (accepts `text`+`dataset_id`) work identically.
 6. **PDF**: `/pdf/templates` (GET templates list), `/pdf/generate` (POST with `{datasetId,title}`), `/pdf/dataset/:id` (POST legacy), `/pdf/report/:id` (GET by report ID)
+7. **Alerts**: `GET /api/jobs/alerts/list` (not `/api/jobs/alerts`). AutoML: `target_col` required (not `target`).
+8. **Collaboration**: Comments at `GET /api/collaboration/comments/:targetType/:targetId` (e.g. `/comments/dataset/1`). Share uses `shared_with_email` field (not `user_email`).
+9. **Business Questions**: Route detects numeric target columns preferentially (`mentionedNumeric` before `mentionedCols`). POST body: `{question, dataset_id}`.
+10. **DataContext**: Both `activeDataset` and `selectedDataset` exported — 7+ pages use `selectedDataset` alias.
+11. **Geo Maps**: data_1 now has `lat`/`lng` columns (numeric, region-based scatter). All 3 geo_layers point to dataset_id=1 with lat_col='lat', lng_col='lng'.
+12. **data_1 seed**: `server/src/seed_data1.js` — run when data_1 is empty. sale_id is INTEGER type (not text). customer_id is NUMERIC.
+13. **Masking preview**: Returns `{original, masked, rulesApplied}` (not `{preview}`). Masking types: `GET /api/masking/types` returns array.
+14. **Profiling response**: `{sample, columns, overview, quality, correlation, generatedAt, valueCounts}`. Frontend uses `profile.overview.rowCount` etc.
+15. **Dataset summary**: `GET /api/datasets/:id/summary` returns `{summary, quality, correlation}` (not flat object).

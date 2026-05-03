@@ -20,10 +20,13 @@ export default function Analytics() {
 
   useEffect(() => { fetchDatasets(); }, []);
 
-  const schemaArr = activeDataset?.schema
-    ? Object.entries(activeDataset.schema).map(([name, type]) => ({ name, type }))
-    : [];
-  const numericCols = schemaArr.filter(c => c.type === 'numeric' || c.type === 'integer').map(c => c.name);
+  const rawSchema = activeDataset?.schema || [];
+  const schemaArr = Array.isArray(rawSchema)
+    ? rawSchema
+    : Object.entries(rawSchema).map(([name, type]) => ({ name, type: String(type) }));
+  const numericCols = schemaArr.filter(c =>
+    ['numeric','integer','float','double','decimal','number'].some(t => String(c.type).toLowerCase().includes(t))
+  ).map(c => c.name);
   const allCols = schemaArr.map(c => c.name);
 
   const runAnalysis = async () => {

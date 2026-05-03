@@ -19,11 +19,12 @@ router.get('/', authenticate, async (req, res) => {
 
 router.post('/', authenticate, async (req, res) => {
   try {
-    const { name, job_type, config = {}, schedule_cron, schedule_description, dataset_id } = req.body;
-    if (!name || !job_type) return res.status(400).json({ error: 'Name and job_type required' });
+    const { name, job_type, type: jobTypeAlias, config = {}, schedule_cron, schedule_description, dataset_id } = req.body;
+    const finalJobType = job_type || jobTypeAlias;
+    if (!name || !finalJobType) return res.status(400).json({ error: 'Name and job_type required' });
     const result = await pool.query(
       'INSERT INTO jobs (name, job_type, config, schedule_cron, schedule_description, dataset_id, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      [name, job_type, JSON.stringify(config), schedule_cron, schedule_description, dataset_id || null, req.user.id]
+      [name, finalJobType, JSON.stringify(config), schedule_cron, schedule_description, dataset_id || null, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

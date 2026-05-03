@@ -46,7 +46,7 @@ export const DataProvider = ({ children }) => {
   };
 
   return (
-    <DataContext.Provider value={{ datasets, activeDataset, loading, fetchDatasets, uploadDataset, deleteDataset, selectDataset, setActiveDataset }}>
+    <DataContext.Provider value={{ datasets, activeDataset, selectedDataset: activeDataset, loading, fetchDatasets, uploadDataset, deleteDataset, selectDataset, setActiveDataset }}>
       {children}
     </DataContext.Provider>
   );

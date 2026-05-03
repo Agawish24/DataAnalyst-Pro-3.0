@@ -27,9 +27,10 @@ const analyzeRootCause = async (question, datasetId) => {
   const isWhyQuestion = /why|reason|cause|root|explain/i.test(q);
   const isWhatQuestion = /what|which|top|best|worst/i.test(q);
 
-  // Extract target metric from question
+  // Extract target metric from question — prefer numeric columns over categorical
   const mentionedCols = cols.filter(c => q.includes(c.toLowerCase().replace(/_/g, ' ')) || q.includes(c.toLowerCase()));
-  const targetCol = mentionedCols[0] || numericCols[0];
+  const mentionedNumeric = mentionedCols.filter(c => numericCols.includes(c));
+  const targetCol = mentionedNumeric[0] || mentionedCols.find(c => numericCols.includes(c)) || numericCols[0];
   const targetStats = targetCol ? summary[targetCol] : null;
 
   const findings = [];
@@ -198,7 +199,23 @@ const buildNarrative = (question, metric, stats, findings, isDrop, isGrowth) => 
   return text;
 };
 
-// Save question history
+// POST / — primary ask endpoint (accepts {question, datasetId} or {question, dataset_id})
+router.post('/', authenticate, async (req, res) => {
+  try {
+    const { question, datasetId, dataset_id } = req.body;
+    const dsId = datasetId || dataset_id;
+    if (!question) return res.status(400).json({ error: 'Question required' });
+    if (!dsId) return res.status(400).json({ error: 'Dataset required' });
+    const analysis = await analyzeRootCause(question, dsId);
+    await pool.query(
+      'INSERT INTO business_questions (user_id, dataset_id, question, result) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+      [req.user.id, dsId, question, JSON.stringify(analysis)]
+    ).catch(() => {});
+    res.json(analysis);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET / — question history
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(

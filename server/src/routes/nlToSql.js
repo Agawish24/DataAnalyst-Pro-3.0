@@ -14,15 +14,22 @@ const parseNL = async (text, datasetId) => {
   const t = tokenize(text);
   const words = t.split(' ');
 
-  let schema = {};
+  let schemaArr = [];
   let tableName = 'dataset';
   if (datasetId) {
     const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [datasetId]).catch(() => ({ rows: [] }));
-    if (ds.rows[0]) schema = ds.rows[0].schema || {};
-    const cols = Object.keys(schema);
-    const numericCols = cols.filter(c => ['integer','numeric','float','double','decimal','number'].some(t => String(schema[c]).toLowerCase().includes(t)));
-    const catCols = cols.filter(c => ['text','varchar','char','string'].some(t => String(schema[c]).toLowerCase().includes(t)));
-    const dateCols = cols.filter(c => ['date','time','timestamp'].some(t => String(schema[c]).toLowerCase().includes(t)));
+    if (ds.rows[0]) {
+      const raw = ds.rows[0].schema || [];
+      // Support both [{name,type}] array and {col:type} object formats
+      schemaArr = Array.isArray(raw)
+        ? raw
+        : Object.entries(raw).map(([name, type]) => ({ name, type: String(type) }));
+    }
+    tableName = `data_${datasetId}`;
+    const cols = schemaArr.map(s => s.name);
+    const numericCols = schemaArr.filter(s => ['integer','numeric','float','double','decimal','number'].some(t => String(s.type).toLowerCase().includes(t))).map(s => s.name);
+    const catCols = schemaArr.filter(s => ['text','varchar','char','string','character'].some(t => String(s.type).toLowerCase().includes(t))).map(s => s.name);
+    const dateCols = schemaArr.filter(s => ['date','time','timestamp'].some(t => String(s.type).toLowerCase().includes(t))).map(s => s.name);
 
     // Detect intent
     let aggFunc = null, aggCol = null, groupCol = null, filterClauses = [], orderDir = 'DESC', limit = null, timeUnit = null;

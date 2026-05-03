@@ -14,11 +14,13 @@ const getDatasetRows = async (datasetId, limit = 5000) => {
 router.post('/:datasetId/regression', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId);
-    const { x_column, y_column, target_column, feature_columns, target, features, ...rest } = req.body;
+    const { x_column, y_column, target_column, target_col, feature_columns, feature_cols, target, features, ...rest } = req.body;
+    const resolvedTarget = target || y_column || target_column || target_col;
+    const resolvedFeatures = features || feature_columns || feature_cols || (x_column ? [x_column] : undefined);
     const payload = {
       data: rows,
-      target: target || y_column || target_column,
-      features: features || feature_columns || (x_column ? [x_column] : undefined),
+      target: resolvedTarget,
+      features: resolvedFeatures,
       ...rest,
     };
     const response = await axios.post(`${PYTHON_SERVICE}/analytics/regression`, payload, { timeout: 30000 });

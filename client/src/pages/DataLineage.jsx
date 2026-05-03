@@ -28,7 +28,7 @@ function GraphNode({ node, x, y, selected, onClick }) {
       <text x={x} y={y + 5} textAnchor="middle" fontSize={11} fill={selected ? '#fff' : '#e2e8f0'} fontWeight={600}>
         {node.label?.length > 18 ? node.label.slice(0, 18) + '…' : node.label}
       </text>
-      <text x={x} y={y + 18} textAnchor="middle" fontSize={9} fill={style.color} textTransform="uppercase">
+      <text x={x} y={y + 18} textAnchor="middle" fontSize={9} fill={style.color} style={{ textTransform: 'uppercase' }}>
         {node.type}
       </text>
     </g>
