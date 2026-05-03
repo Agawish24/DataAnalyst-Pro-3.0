@@ -126,6 +126,7 @@ const handleConvert = async (req, res) => {
 router.post('/', authenticate, handleConvert);
 router.post('/query', authenticate, handleConvert);
 router.post('/convert', authenticate, handleConvert);
+router.post('/translate', authenticate, handleConvert);
 
 router.get('/history', authenticate, async (req, res) => {
   try {

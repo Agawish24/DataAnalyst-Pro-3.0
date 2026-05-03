@@ -176,6 +176,16 @@ const generateNarrative = (ds, schema, rows, numStats, catStats, timeCol) => {
   return sections;
 };
 
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT n.*, d.name as dataset_name FROM narratives n LEFT JOIN datasets d ON n.dataset_id = d.id WHERE n.created_by = $1 ORDER BY n.created_at DESC LIMIT 50',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/:datasetId', authenticate, async (req, res) => {
   try {
     const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.datasetId, req.user.id]);

@@ -88,6 +88,16 @@ ${catCols.length ? `
 </html>`;
 };
 
+router.get('/reports', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM reports WHERE created_by = $1 ORDER BY created_at DESC LIMIT 50',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/templates', authenticate, (req, res) => {
   res.json([
     { id: 'executive', name: 'Executive Summary', description: 'High-level KPIs, narrative, and key findings', sections: ['overview', 'narrative', 'kpis'] },

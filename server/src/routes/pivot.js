@@ -20,22 +20,20 @@ const aggregate = (values, func) => {
   }
 };
 
-router.post('/:datasetId/compute', authenticate, async (req, res) => {
+const runCompute = async (datasetId, body, res) => {
   try {
-    const { row_fields = [], col_fields = [], value_field, values, aggregator = 'sum', filters = {} } = req.body;
+    const { row_fields = [], col_fields = [], value_field, values, aggregator = 'sum', filters = {} } = body;
     const vf = value_field || values;
     if (!vf) return res.status(400).json({ error: 'value_field required' });
     const value_field_resolved = vf;
 
-    const data = await pool.query(`SELECT * FROM data_${req.params.datasetId} LIMIT 50000`);
+    const data = await pool.query(`SELECT * FROM data_${datasetId} LIMIT 50000`);
     let rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
 
-    // Apply filters
     for (const [col, val] of Object.entries(filters)) {
       if (val !== '' && val !== null) rows = rows.filter(r => String(r[col]) === String(val));
     }
 
-    // Build pivot
     const rowKeys = [...new Set(rows.map(r => row_fields.map(f => r[f]).join(' | ')))].sort();
     const colKeys = col_fields.length ? [...new Set(rows.map(r => col_fields.map(f => r[f]).join(' | ')))].sort() : ['Total'];
 
@@ -61,6 +59,16 @@ router.post('/:datasetId/compute', authenticate, async (req, res) => {
     const grandTotal = Object.values(rowTotals).reduce((a, b) => a + b, 0);
     res.json({ rowKeys, colKeys, matrix, rowTotals, colTotals, grandTotal: +grandTotal.toFixed(4), aggregator, valueField: value_field_resolved, rowCount: rows.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+router.post('/compute', authenticate, async (req, res) => {
+  const dsId = req.body.datasetId || req.body.dataset_id;
+  if (!dsId) return res.status(400).json({ error: 'datasetId required in body' });
+  return runCompute(dsId, req.body, res);
+});
+
+router.post('/:datasetId/compute', authenticate, async (req, res) => {
+  return runCompute(req.params.datasetId, req.body, res);
 });
 
 router.post('/save', authenticate, async (req, res) => {

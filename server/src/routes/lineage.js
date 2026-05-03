@@ -16,6 +16,13 @@ const registerEdge = async (sourceId, targetId, edgeType, metadata = {}) => {
   if (!existing.rows.length) await pool.query('INSERT INTO lineage_edges (source_id, target_id, edge_type, metadata) VALUES ($1,$2,$3,$4)', [sourceId, targetId, edgeType, JSON.stringify(metadata)]);
 };
 
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const datasets = await pool.query('SELECT id, name, row_count, created_at FROM datasets ORDER BY name');
+    res.json(datasets.rows.map(d => ({ ...d, lineageEdges: 0, hasLineage: false })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/datasets', authenticate, async (req, res) => {
   try {
     const datasets = await pool.query('SELECT id, name, row_count, created_at FROM datasets ORDER BY name');

@@ -13,6 +13,21 @@ const getCreds = async (userId, provider) => {
 
 const hubHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+router.get('/contacts', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      'SELECT provider, created_at FROM crm_connections WHERE user_id=$1',
+      [req.user.id]
+    );
+    res.json({
+      connected: r.rows.map(c => c.provider),
+      message: r.rows.length
+        ? `Connected to: ${r.rows.map(c => c.provider).join(', ')} — use provider-specific endpoints to fetch contacts`
+        : 'No CRM connected — use /crm/hubspot/connect, /crm/salesforce/connect, or /crm/zoho/connect',
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── HubSpot ──────────────────────────────────────────────────
 
 router.get('/hubspot/status', authenticate, async (req, res) => {

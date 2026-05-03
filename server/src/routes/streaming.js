@@ -52,6 +52,16 @@ const mockGenerators = {
   }),
 };
 
+router.get('/feeds', authenticate, (req, res) => {
+  res.json([
+    { id: 'sales', label: 'Sales Dashboard', color: '#10b981', metrics: ['revenue', 'orders', 'customers', 'avg_order_value', 'returns'], primary: 'revenue', icon: '💰' },
+    { id: 'stock', label: 'Stock Market Feed', color: '#6366f1', metrics: ['open', 'high', 'low', 'close', 'volume'], primary: 'close', icon: '📈' },
+    { id: 'iot', label: 'IoT Sensors', color: '#f59e0b', metrics: ['temperature', 'humidity', 'pressure', 'co2', 'light'], primary: 'temperature', icon: '🌡️' },
+    { id: 'marketing', label: 'Marketing', color: '#ec4899', metrics: ['impressions', 'clicks', 'conversions', 'cost', 'roas'], primary: 'conversions', icon: '📣' },
+    { id: 'ecommerce', label: 'E-Commerce', color: '#8b5cf6', metrics: ['gmv', 'sessions', 'add_to_cart', 'purchases', 'refunds'], primary: 'gmv', icon: '🛒' },
+  ]);
+});
+
 router.get('/types', authenticate, (req, res) => {
   res.json([
     { id: 'sales', label: 'Sales Dashboard', color: '#10b981', metrics: ['revenue', 'orders', 'customers', 'avg_order_value', 'returns'], primary: 'revenue', icon: '💰' },

@@ -1,0 +1,142 @@
+import os
+import sys
+
+def hello_world():
+    print("Hello World")
+
+def add_numbers(a, b):
+    return a + b
+
+def subtract_numbers(a, b)
+    return a - b
+
+class Car:
+    def __init__(self, brand, model):
+        self.brand = brand
+        self.model = model
+
+    def drive(self):
+        print(f"{self.brand} {self.model} is driving")
+
+class Bike
+    def __init__(self, brand):
+        self.brand = brand
+
+    def ride(self):
+        print(f"{self.brand} is riding")
+
+for i in range(5):
+    print(i)
+
+for j in range(5)
+    print(j)
+
+x = 10
+if x > 5:
+    print("Greater")
+
+if x < 5
+    print("Smaller")
+
+numbers = [1, 2, 3, 4, 5]
+print(numbers[0])
+print(numbers[5])
+
+dict_data = {"a": 1, "b": 2}
+print(dict_data["a"])
+print(dict_data["c"])
+
+with open("file.txt", "w") as f:
+    f.write("data")
+
+with open("file.txt", "r") f:
+    print(f.read())
+
+def multiply(a, b):
+    return a * b
+
+def divide(a, b):
+    return a / b
+
+def bad_divide(a, b):
+    return a // 0
+
+try:
+    val = int("123")
+except ValueError:
+    print("error")
+
+tr:
+    val = int("abc")
+except:
+    print("fail")
+
+def greet(name="World"):
+    print("Hello", name)
+
+def shout(word):
+    print(HELLO)
+
+import math
+print(math.sqrt(16))
+
+form math import pi
+print(pi)
+
+def factorial(n):
+    if n == 0:
+        return 1
+    return n * factorial(n-1)
+
+def bad_factorial(n):
+    return n * bad_factorial(n)
+
+nums = [1,2,3,4,5]
+print(nums[1:3])
+print(nums[::])
+
+print(f"Hello {name}")
+print(f"Hello {name)
+
+assert 2 + 2 == 4
+assert(2 + 2 = 4)
+
+def decorator(func):
+    def wrapper():
+        print("Before")
+        func()
+        print("After")
+    return wrapper
+
+decorator func():
+    print("oops")
+
+def gen():
+    for i in range(3):
+        yield i
+
+yield 5
+
+flag = True
+flag2 = truE
+
+print(unknown_var)
+
+break
+continue
+
+def outer():
+    def inner():
+        return "inside"
+    return inner()
+
+def broken():
+    x = 5
+
+double = lambda x: x * 2
+triple = lambda x x*3
+
+data = {"x": 1, "y": 2}
+bad_dict = {"x" 1, "y" 2}
+
+print("Done")

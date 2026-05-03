@@ -866,24 +866,174 @@ const checkPythonLines = (lines) => {
   return errors;
 };
 
+// ── Python auto-fixer ─────────────────────────────────────────────────────────
+const fixPythonCode = (code) => {
+  const lines = code.split('\n');
+  const fixed = lines.map(raw => {
+    let line = raw;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+
+    // improt → import
+    line = line.replace(/^(\s*)improt\b/, '$1import');
+    // form X import → from X import
+    line = line.replace(/^(\s*)form\s+(\w[\w.]*)\s+import\b/, '$1from $2 import');
+    // tr: → try:
+    line = line.replace(/^(\s*)tr\s*:/, '$1try:');
+
+    // Wrong boolean capitalization (skip inside strings naively)
+    line = line.replace(/\b(truE|tRue|TRUE)\b/g, 'True');
+    line = line.replace(/\b(falSe|fAlse|FALSE)\b/g, 'False');
+    line = line.replace(/\b(nOne|NONE)\b/g, 'None');
+
+    // Python 2 print: print "text" → print("text")
+    line = line.replace(/^(\s*)print\s+([^(=\n].*)$/, (m, indent, rest) => {
+      const clean = rest.trimEnd();
+      // Don't double-wrap if somehow already has parens
+      if (clean.startsWith('(') && clean.endsWith(')')) return m;
+      return `${indent}print(${clean})`;
+    });
+
+    // Missing colon on block-starting statement
+    const blockMatch = line.match(/^(\s*)(def|class|if|elif|else|for|while|try|except|finally|with)\b(.*)/);
+    if (blockMatch) {
+      const [, indent2, kw, rest2] = blockMatch;
+      const noComment = rest2.replace(/#.*$/, '').trimEnd();
+      if (noComment && !noComment.endsWith(':')) {
+        line = `${indent2}${kw}${rest2.trimEnd()}:`;
+      }
+    }
+
+    // assert(x = y) → assert(x == y)
+    line = line.replace(/^(\s*assert\s*\([^)]*)[^=!<>]=[^=]/, (m) => m.replace(/([^=!<>])=([^=])/, '$1==$2'));
+
+    // while/if x = y → while/if x == y
+    line = line.replace(/^(\s*(?:while|if|elif)\s+\w+)\s*=\s*(\w)/, '$1 == $2');
+
+    return line;
+  });
+  return fixed.join('\n');
+};
+
 // Whole-file Python pattern checks (things that can't be done per-line)
 const PYTHON_GLOBAL_PATTERNS = [
-  { re: /==['"](True|False|None)['"]/g, type: 'warning', msg: 'Comparing with ==" True"/"False"/"None" string — use boolean True/False/None literals', fix: c => c.replace(/==["'](True)["']/g, '== True').replace(/==["'](False)["']/g, '== False').replace(/==["'](None)["']/g, 'is None') },
-  { re: /\brange\s*\(\s*len\s*\(/g,      type: 'warning', msg: 'Avoid range(len(x)) — iterate directly: for item in x', fix: c => c },
-  { re: /import \*/,                      type: 'warning', msg: 'Wildcard imports (import *) pollute namespace — import specific names', fix: c => c },
-  { re: /\bxrange\b/,                    type: 'error',   msg: 'xrange does not exist in Python 3 — use range()', fix: c => c.replace(/\bxrange\b/g, 'range') },
-  { re: /\bdict\.has_key\b/,             type: 'error',   msg: '.has_key() removed in Python 3 — use "key in dict"', fix: c => c.replace(/(\w+)\.has_key\(([^)]+)\)/g, '$2 in $1') },
-  { re: /==\s*None\b/g,                  type: 'warning', msg: 'Use "is None" instead of "== None"', fix: c => c.replace(/==\s*None\b/g, 'is None') },
-  { re: /!=\s*None\b/g,                  type: 'warning', msg: 'Use "is not None" instead of "!= None"', fix: c => c.replace(/!=\s*None\b/g, 'is not None') },
-  { re: /\bexecfile\b/,                  type: 'error',   msg: 'execfile() removed in Python 3 — use exec(open("file").read())', fix: c => c.replace(/\bexecfile\s*\(([^)]+)\)/g, 'exec(open($1).read())') },
+  { re: /==['"](True|False|None)['"]/g, type: 'warning', msg: 'Comparing == with string "True"/"False"/"None" — use boolean True/False/None literals', fix: c => c.replace(/==["'](True)["']/g, '== True').replace(/==["'](False)["']/g, '== False').replace(/==["'](None)["']/g, 'is None') },
+  { re: /\brange\s*\(\s*len\s*\(/g,     type: 'warning', msg: 'Avoid range(len(x)) — iterate directly: for item in x', fix: c => c },
+  { re: /import \*/,                     type: 'warning', msg: 'Wildcard imports (import *) pollute namespace — import specific names', fix: c => c },
+  { re: /\bxrange\b/,                   type: 'error',   msg: 'xrange does not exist in Python 3 — use range()', fix: c => c.replace(/\bxrange\b/g, 'range') },
+  { re: /\bdict\.has_key\b/,            type: 'error',   msg: '.has_key() removed in Python 3 — use "key in dict"', fix: c => c.replace(/(\w+)\.has_key\(([^)]+)\)/g, '$2 in $1') },
+  { re: /==\s*None\b/g,                 type: 'warning', msg: 'Use "is None" instead of "== None"', fix: c => c.replace(/([^=!<>])==\s*None\b/g, '$1is None') },
+  { re: /!=\s*None\b/g,                 type: 'warning', msg: 'Use "is not None" instead of "!= None"', fix: c => c.replace(/!=\s*None\b/g, 'is not None') },
+  { re: /\bexecfile\b/,                 type: 'error',   msg: 'execfile() removed in Python 3 — use exec(open("file").read())', fix: c => c.replace(/\bexecfile\s*\(([^)]+)\)/g, 'exec(open($1).read())') },
 ];
+
+// HELLO-style undefined ALL_CAPS identifiers
+const KNOWN_UPPER = new Set([
+  'TRUE','FALSE','NONE','OK','ERROR','DEBUG','INFO','WARNING','CRITICAL','SQL','URL','API',
+  'HTTP','HTTPS','HTML','JSON','CSV','XML','PDF','UTC','EST','GMT','EOF','NaN','INF',
+  'MAX','MIN','PI','E','SIGTERM','SIGKILL','STDIN','STDOUT','STDERR','PATH','HOME',
+  'GET','POST','PUT','DELETE','PATCH','HEAD','OPTIONS',
+]);
+
+const checkUndefinedCaps = (lines) => {
+  const errors = [];
+  // Collect all top-level assignments like HELLO = ...
+  const defined = new Set();
+  lines.forEach(l => {
+    const m = l.match(/^([A-Z][A-Z0-9_]{1,})\s*=/);
+    if (m) defined.add(m[1]);
+    // Also catch: import X as CAP
+    const im = l.match(/import\s+\w+\s+as\s+([A-Z][A-Z0-9_]+)\b/);
+    if (im) defined.add(im[1]);
+    // from X import CAP
+    const fm = l.match(/from\s+\w[\w.]*\s+import\s+(.+)/);
+    if (fm) {
+      fm[1].split(',').forEach(name => {
+        const trimName = name.trim().split(/\s+as\s+/).pop().trim();
+        if (/^[A-Z][A-Z0-9_]+$/.test(trimName)) defined.add(trimName);
+      });
+    }
+  });
+
+  const seen = new Set();
+  lines.forEach((raw, i) => {
+    const lineNum = i + 1;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    const capsMatches = trimmed.match(/\b([A-Z][A-Z0-9_]{1,})\b/g) || [];
+    capsMatches.forEach(cap => {
+      if (KNOWN_UPPER.has(cap) || defined.has(cap) || seen.has(`${cap}:${lineNum}`)) return;
+      // Skip if it's the LHS of an assignment on this line
+      if (new RegExp(`^\\s*${cap}\\s*=(?!=)`).test(raw)) return;
+      // Skip if it's in an import statement
+      if (/^\s*(import|from)\b/.test(raw)) return;
+      seen.add(`${cap}:${lineNum}`);
+      errors.push({
+        type: 'warning', line: lineNum, language: 'python',
+        message: `Line ${lineNum}: "${cap}" is used but never defined — uppercase identifiers are usually module-level constants; did you mean a string or a defined variable?`,
+        fix: `Define it first: ${cap} = "..." or use a lowercase variable name`,
+      });
+    });
+  });
+  return errors;
+};
+
+const checkEmptyFunctions = (lines) => {
+  const errors = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const lineNum = i + 1;
+    if (!/^\s*def\s+\w+\s*\([^)]*\)\s*:/.test(raw)) continue;
+    const funcIndent = (raw.match(/^(\s*)/) || ['', ''])[1].length;
+    const funcName = (raw.match(/def\s+(\w+)/) || [])[1];
+
+    const bodyLines = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      const nl = lines[j];
+      const nt = nl.trim();
+      const ni = (nl.match(/^(\s*)/) || ['', ''])[1].length;
+      if (!nt) { j++; continue; }
+      if (ni <= funcIndent) break;
+      bodyLines.push(nt);
+      j++;
+    }
+
+    if (bodyLines.length === 0) {
+      errors.push({
+        type: 'error', line: lineNum, language: 'python',
+        message: `Line ${lineNum}: Function "${funcName}" has no body — add "pass" or a return statement`,
+        fix: 'Add pass, a return statement, or a docstring to the function body',
+      });
+    } else if (
+      bodyLines.length >= 1 &&
+      bodyLines.every(bl => /^\w+\s*=(?!=)/.test(bl)) &&
+      !bodyLines.some(bl => /\b(return|yield|print|raise|self\.|cls\.|os\.|sys\.)\b/.test(bl))
+    ) {
+      errors.push({
+        type: 'warning', line: lineNum, language: 'python',
+        message: `Line ${lineNum}: Function "${funcName}" only assigns local variables but has no return — those values are lost when the function exits`,
+        fix: 'Add a return statement: return variable_name',
+      });
+    }
+  }
+  return errors;
+};
 
 const analyzePython = (code) => {
   const lines  = code.split('\n');
-  const errors = checkPythonLines(lines);
-  let fixed    = code;
+  const errors = [
+    ...checkPythonLines(lines),
+    ...checkUndefinedCaps(lines),
+    ...checkEmptyFunctions(lines),
+  ];
 
-  // Global patterns: deduplicate against per-line errors already found
+  // Apply auto-fixer to generate fixedCode
+  const autoFixed = fixPythonCode(code);
+
+  // Global patterns: apply fixes and deduplicate
+  let fixed = autoFixed;
   const existingMsgs = new Set(errors.map(e => e.message));
   for (const p of PYTHON_GLOBAL_PATTERNS) {
     const re = new RegExp(p.re.source, p.re.flags.replace('g', ''));
@@ -905,40 +1055,242 @@ const analyzePython = (code) => {
   return { errors, fixed: fixed !== code ? fixed : null, suggestions: generatePythonSuggestions(code) };
 };
 
-// ── R analysis ────────────────────────────────────────────────────────────────
+// ── R line-by-line checker ────────────────────────────────────────────────────
+const checkRLines = (lines) => {
+  const errors = [];
+  const push = (type, ln, message, fix) =>
+    errors.push({ type, line: ln, language: 'r', message, fix: fix || null });
+
+  // Brace balance tracking
+  let braceDepth = 0;
+  let parenDepth = 0;
+
+  lines.forEach((raw, i) => {
+    const lineNum = i + 1;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    // Track brace/paren balance (ignore inside strings naively)
+    const stripped = trimmed.replace(/"[^"]*"|'[^']*'/g, '""');
+    braceDepth += (stripped.match(/\{/g) || []).length - (stripped.match(/\}/g) || []).length;
+    parenDepth += (stripped.match(/\(/g) || []).length - (stripped.match(/\)/g) || []).length;
+
+    // ── 1. Python-style for loop ───────────────────────────────────────────────
+    if (/^for\s+\w+\s+in\s/.test(trimmed) && !/^for\s*\(/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Python-style "for x in ..." — R syntax is: for (x in ...) { }`,
+        'Wrap loop variable in parens: for (x in vec) { }');
+    }
+
+    // ── 2. Python-style if/while (missing parens around condition) ─────────────
+    if (/^(if|while)\s+[^(]/.test(trimmed)) {
+      const kw = trimmed.match(/^(if|while)/)[1];
+      push('error', lineNum,
+        `Line ${lineNum}: R requires parentheses around ${kw} condition — use "${kw} (condition)"`,
+        `Change to: ${kw} (condition) { }`);
+    }
+
+    // ── 3. elif (Python keyword) ───────────────────────────────────────────────
+    if (/^elif\s/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "elif" is Python syntax — R uses "else if (condition)"`,
+        'Change to: } else if (condition) {');
+    }
+
+    // ── 4. def keyword ────────────────────────────────────────────────────────
+    if (/^def\s+\w+\s*\(/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "def" is Python syntax — R defines functions with: myFn <- function(args) { }`,
+        'Change to: myFn <- function(args) { }');
+    }
+
+    // ── 5. Python True / False / None ─────────────────────────────────────────
+    if (/\bTrue\b/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "True" is Python — R uses uppercase TRUE`,
+        'Change True → TRUE');
+    }
+    if (/\bFalse\b/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "False" is Python — R uses uppercase FALSE`,
+        'Change False → FALSE');
+    }
+    if (/\bNone\b/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "None" is Python — R uses NULL (or NA for missing values)`,
+        'Change None → NULL or NA');
+    }
+
+    // ── 6. print without parens: print x ──────────────────────────────────────
+    if (/^print\s+[^(]/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "print x" is Python syntax — R requires: print(x)`,
+        'Change to: print(x)');
+    }
+
+    // ── 7. len() instead of length() ──────────────────────────────────────────
+    if (/\blen\s*\(/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: len() is a Python function — R equivalent is length()`,
+        'Change len(x) → length(x)');
+    }
+
+    // ── 8. Python range() ─────────────────────────────────────────────────────
+    if (/\brange\s*\(/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: range() is Python — R uses seq(from, to) or the colon operator from:to`,
+        'Change range(1, 10) → 1:9 (0-indexed in Python, 1-indexed in R) or seq(1, 10)');
+    }
+
+    // ── 9. Python-style string format: f"..." ─────────────────────────────────
+    if (/\bf["']/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: f-strings are Python syntax — R uses sprintf() or glue::glue()`,
+        'Use sprintf("value=%s", x) or library(glue); glue("value={x}")');
+    }
+
+    // ── 10. import statement ───────────────────────────────────────────────────
+    if (/^import\s+\w/.test(trimmed) || /^from\s+\w/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "import" is Python syntax — R uses library(pkg) or require(pkg)`,
+        'Change import pkg → library(pkg)');
+    }
+
+    // ── 11. = for function assignment ──────────────────────────────────────────
+    if (/^\w+\s*=\s*function\s*\(/.test(trimmed)) {
+      const name = trimmed.match(/^(\w+)/)[1];
+      push('warning', lineNum,
+        `Line ${lineNum}: Function "${name}" assigned with = — R convention is to use <-`,
+        `Change: ${name} = function(...) to: ${name} <- function(...)`);
+    }
+
+    // ── 12. <<- global assignment warning ─────────────────────────────────────
+    if (/<<-/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: <<- modifies a variable in the parent environment — this can cause hard-to-find bugs`,
+        'Prefer returning values explicitly; avoid <<- except in well-understood closures');
+    }
+
+    // ── 13. Missing closing brace at colon (Python block style) ───────────────
+    if (/:\s*$/.test(trimmed) && !/^\s*#/.test(trimmed) && !/^[^"']*["'][^"']*:\s*$/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Line ends with ":" — this is Python block syntax, not R; R uses { } braces`,
+        'Remove the colon and wrap the block in { }');
+    }
+
+    // ── 14. paste() with sep="" — should be paste0() ──────────────────────────
+    if (/\bpaste\s*\([^)]*,\s*sep\s*=\s*["']["']/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: paste(..., sep="") — use paste0() which is shorter and avoids the sep argument`,
+        'Change paste(..., sep="") → paste0(...)');
+    }
+
+    // ── 15. T / F as booleans ─────────────────────────────────────────────────
+    if (/\bT\b(?!\w)/.test(trimmed) && !/^\s*#/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: "T" used as boolean — T can be overwritten by assignment; use TRUE`,
+        'Change T → TRUE');
+    }
+    if (/\bF\b(?!\w)/.test(trimmed) && !/^\s*#/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: "F" used as boolean — F can be overwritten by assignment; use FALSE`,
+        'Change F → FALSE');
+    }
+
+    // ── 16. Missing library for common functions ───────────────────────────────
+    if (/\bggplot\s*\(/.test(trimmed) && !lines.some(l => /library\s*\(\s*ggplot2\s*\)/.test(l))) {
+      push('warning', lineNum,
+        `Line ${lineNum}: ggplot() used without library(ggplot2)`,
+        'Add at top: library(ggplot2)');
+    }
+    if (/\b(mutate|filter|select|group_by|summarise|arrange|rename)\s*\(/.test(trimmed) &&
+        !lines.some(l => /library\s*\(\s*dplyr\s*\)/.test(l))) {
+      push('warning', lineNum,
+        `Line ${lineNum}: dplyr function used without library(dplyr)`,
+        'Add at top: library(dplyr)');
+    }
+
+    // ── 17. Deprecated $ on NULL object ───────────────────────────────────────
+    if (/NULL\s*\$/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Accessing $ on NULL will produce NULL — check that the object exists first`,
+        'Use is.null(obj) before accessing obj$field');
+    }
+
+    // ── 18. rbind in a loop (performance) ─────────────────────────────────────
+    if (/\brbind\s*\(/.test(trimmed) && lines.slice(Math.max(0, i - 5), i).some(l => /\bfor\b/.test(l))) {
+      push('warning', lineNum,
+        `Line ${lineNum}: rbind() inside a loop is O(n²) — pre-allocate a list and rbind once outside the loop`,
+        'Use: result <- vector("list", n); for (...) { result[[i]] <- ... }; do.call(rbind, result)');
+    }
+  });
+
+  // Unbalanced braces (whole-file)
+  if (braceDepth > 0) {
+    errors.push({ type: 'error', line: null, language: 'r',
+      message: `Unbalanced braces: ${braceDepth} unclosed "{" — missing closing }`,
+      fix: `Add ${braceDepth} closing brace(s) "}"` });
+  } else if (braceDepth < 0) {
+    errors.push({ type: 'error', line: null, language: 'r',
+      message: `Unbalanced braces: ${Math.abs(braceDepth)} extra "}" with no matching {`,
+      fix: 'Remove extra closing brace(s) or add matching opening braces' });
+  }
+
+  return errors;
+};
+
+// ── R global pattern checks and auto-fixer ────────────────────────────────────
+// R_PATTERNS are global fixes applied AFTER line-by-line checks.
+// Only include patterns NOT already covered by checkRLines() to avoid duplicates.
 const R_PATTERNS = [
-  { re: /=\s*function\s*\(/, msg: 'In R, use <- for function assignment: myFn <- function()', fix: c => c.replace(/(\w+)\s*=\s*(function\s*\()/g, '$1 <- $2') },
-  { re: /\bT\b(?!\w)/, msg: '"T" can be overwritten in R — use TRUE instead', fix: c => c.replace(/\bT\b/g, 'TRUE') },
-  { re: /\bF\b(?!\w)/, msg: '"F" can be overwritten in R — use FALSE instead', fix: c => c.replace(/\bF\b/g, 'FALSE') },
-  { re: /==\s*NULL\b/g, msg: 'Use is.null() to check for NULL in R, not ==', fix: c => c.replace(/(\w+)\s*==\s*NULL\b/g, 'is.null($1)') },
-  { re: /==\s*NA\b/g, msg: 'Use is.na() to check for NA in R, not ==', fix: c => c.replace(/(\w+)\s*==\s*NA\b/g, 'is.na($1)') },
-  { re: /\bsetwd\b/, msg: 'Avoid setwd() in scripts — use here::here() or relative paths', fix: c => c },
-  { re: /\battach\s*\(/, msg: 'Avoid attach() — it pollutes global namespace, use $ notation instead', fix: c => c },
-  { re: /\bfor\s*\(\w+\s+in\s+1:nrow/, msg: 'Avoid row-by-row loops — use apply() or vectorized dplyr/data.table operations', fix: c => c },
-  { re: /1:length\(/, msg: 'Avoid 1:length(x) — use seq_along(x) which is safe with zero-length vectors', fix: c => c.replace(/1:length\(([^)]+)\)/g, 'seq_along($1)') },
-  { re: /1:nrow\(/, msg: 'Avoid 1:nrow(x) — use seq_len(nrow(x)) which handles zero rows safely', fix: c => c.replace(/1:nrow\(([^)]+)\)/g, 'seq_len(nrow($1))') },
-  { re: /\bsapply\b/, msg: 'sapply() can return different types — use lapply() + explicit coercion for stable output', fix: c => c },
+  { re: /==\s*NULL\b/g,   msg: 'Use is.null() to check for NULL, not ==',           fix: c => c.replace(/(\w+)\s*==\s*NULL\b/g, 'is.null($1)') },
+  { re: /==\s*NA\b/g,     msg: 'Use is.na() to check for NA, not ==',               fix: c => c.replace(/(\w+)\s*==\s*NA\b/g, 'is.na($1)') },
+  { re: /\bsetwd\b/,      msg: 'Avoid setwd() — use here::here() or relative paths', fix: c => c },
+  { re: /\battach\s*\(/,  msg: 'Avoid attach() — it pollutes namespace, use $ notation', fix: c => c },
+  { re: /\bfor\s*\(\w+\s+in\s+1:nrow/, msg: 'Avoid row-by-row loops — use apply() or dplyr/data.table', fix: c => c },
+  { re: /1:length\(/,     msg: 'Avoid 1:length(x) — use seq_along(x) for safety with zero-length vectors', fix: c => c.replace(/1:length\(([^)]+)\)/g, 'seq_along($1)') },
+  { re: /1:nrow\(/,       msg: 'Avoid 1:nrow(x) — use seq_len(nrow(x)) for safety with zero rows',       fix: c => c.replace(/1:nrow\(([^)]+)\)/g, 'seq_len(nrow($1))') },
+  { re: /\bsapply\b/,     msg: 'sapply() can return different types — use lapply() + explicit coercion',  fix: c => c },
   { re: /library\s*\(\s*["']/, msg: 'library() accepts unquoted names — prefer library(pkg) over library("pkg")', fix: c => c.replace(/library\s*\(\s*["']([^"']+)["']\s*\)/g, 'library($1)') },
+  { re: /\bpaste\s*\([^)]*,\s*sep\s*=\s*["']["']/, msg: 'paste(..., sep="") — use paste0() which is cleaner', fix: c => c },
+  // Auto-fixes for Python-isms (complement the line error messages with actual fixes)
+  { re: /\bTrue\b/,  msg: null, fix: c => c.replace(/\bTrue\b/g, 'TRUE') },
+  { re: /\bFalse\b/, msg: null, fix: c => c.replace(/\bFalse\b/g, 'FALSE') },
+  { re: /\bNone\b/,  msg: null, fix: c => c.replace(/\bNone\b/g, 'NULL') },
+  { re: /\blen\s*\(/, msg: null, fix: c => c.replace(/\blen\s*\(/g, 'length(') },
+  { re: /(\w+)\s*=\s*(function\s*\()/, msg: null, fix: c => c.replace(/(\w+)\s*=\s*(function\s*\()/g, '$1 <- $2') },
+  { re: /\bT\b(?!\w)/, msg: null, fix: c => c.replace(/\bT\b(?!\w)/g, 'TRUE') },
+  { re: /\bF\b(?!\w)/, msg: null, fix: c => c.replace(/\bF\b(?!\w)/g, 'FALSE') },
 ];
 
 const analyzeR = (code) => {
-  const errors = [];
+  const lines = code.split('\n');
+  const lineErrors = checkRLines(lines);
   let fixed = code;
+
+  const existingMsgs = new Set(lineErrors.map(e => e.message));
+  const globalErrors = [];
+
   for (const p of R_PATTERNS) {
-    if (p.re.test(code)) {
-      const match = code.match(p.re);
-      const lineNum = match ? code.substring(0, match.index).split('\n').length : null;
-      errors.push({ type: 'warning', message: lineNum ? `Line ${lineNum}: ${p.msg}` : p.msg, language: 'r', line: lineNum });
+    const re = new RegExp(p.re.source, (p.re.flags || '').replace('g', ''));
+    if (re.test(code)) {
+      const match = code.match(re);
+      if (p.msg) {
+        const lineNum = match ? code.substring(0, match.index).split('\n').length : null;
+        const msg = lineNum ? `Line ${lineNum}: ${p.msg}` : p.msg;
+        if (!existingMsgs.has(msg)) {
+          globalErrors.push({ type: 'warning', message: msg, language: 'r', line: lineNum });
+          existingMsgs.add(msg);
+        }
+      }
       if (p.fix) fixed = p.fix(fixed);
     }
   }
-  const usedPkgs = [];
-  if (/ggplot\b/.test(code) && !/library\(ggplot2\)/.test(code)) usedPkgs.push('ggplot2');
-  if (/\b(mutate|filter|select|group_by|summarise|arrange)\b/.test(code) && !/library\(dplyr\)/.test(code)) usedPkgs.push('dplyr');
-  if (/\bdata\.table\b/.test(code) && !/library\(data\.table\)/.test(code)) usedPkgs.push('data.table');
-  if (/\bstr_/.test(code) && !/library\(stringr\)/.test(code)) usedPkgs.push('stringr');
-  if (usedPkgs.length) errors.push({ type: 'warning', message: `Possible missing library() calls for: ${usedPkgs.join(', ')}`, language: 'r', fix: usedPkgs.map(p => `library(${p})`).join('\n') });
-  return { errors, fixed: fixed !== code ? fixed : null, suggestions: generateRSuggestions(code) };
+
+  const allErrors = [...lineErrors, ...globalErrors];
+  allErrors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
+
+  return { errors: allErrors, fixed: fixed !== code ? fixed : null, suggestions: generateRSuggestions(code) };
 };
 
 // ── Suggestion generators ─────────────────────────────────────────────────────
