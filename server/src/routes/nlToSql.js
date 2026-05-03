@@ -22,44 +22,32 @@ const SORT_WORDS = { top: 'DESC', best: 'DESC', highest: 'DESC', most: 'DESC', l
 
 const tokenize = (text) => text.toLowerCase().replace(/[?!]/g, '').replace(/\s+/g, ' ').trim();
 
-// ── Fuzzy column match: tries exact → partial → prefix → first-token match
+// ── Fuzzy column match: exact → partial → prefix → first-token
 const fuzzyMatchCol = (term, colList) => {
   if (!term || !colList.length) return null;
   const t = term.toLowerCase().replace(/_/g, ' ').trim();
   if (!t) return null;
-
-  // Exact
   let m = colList.find(c => c.toLowerCase().replace(/_/g, ' ') === t);
   if (m) return { col: m, fuzzy: false };
-
-  // Col name contained in term
   m = colList.find(c => t.includes(c.toLowerCase().replace(/_/g, ' ')));
   if (m) return { col: m, fuzzy: true };
-
-  // Term contained in col name
   m = colList.find(c => c.toLowerCase().replace(/_/g, ' ').includes(t));
   if (m) return { col: m, fuzzy: true };
-
-  // Prefix match (≥3 chars)
   if (t.length >= 3) {
     const prefix = t.substring(0, Math.min(t.length, 5));
     m = colList.find(c => c.toLowerCase().startsWith(prefix));
     if (m) return { col: m, fuzzy: true };
   }
-
-  // First word of term matches any word in col name
   const firstWord = t.split(' ')[0];
   if (firstWord.length >= 3) {
     m = colList.find(c => c.toLowerCase().split('_').includes(firstWord));
     if (m) return { col: m, fuzzy: true };
   }
-
   return null;
 };
 
 // ── Parse "by X and Y" → array of matched columns
 const parseGroupByTerms = (afterByText, catCols, dateCols, allCols) => {
-  // split on "and", "," or "+"
   const rawTerms = afterByText.split(/\s+and\s+|,\s*|\s*\+\s*/).map(s => s.trim()).filter(Boolean);
   const results = [];
   for (const term of rawTerms) {
@@ -69,24 +57,56 @@ const parseGroupByTerms = (afterByText, catCols, dateCols, allCols) => {
   return results;
 };
 
+// ── Detect words in query that look like column names but aren't in schema
+// Returns { missing: [{term, suggestedDataset}], foundInOtherDatasets: [{term, datasets:[]}] }
+const detectMissingColumns = async (queryTerms, allCols, currentDatasetId) => {
+  // Words that are likely column references (≥4 chars, not common English)
+  const stopWords = new Set(['show','list','count','find','what','where','which','average','total','maximum','minimum','number','records','results','grouped','broken','segmented','highest','lowest','between','greater','equals','monthly','weekly','yearly','quarterly','annual','daily','display','fetch','select','from','with','that','have','their','also','than','most','many','some','each','more','less','data','rows','table','columns','distinct','unique','order','limit','group','having','false','true','null','left','right','join','inner','outer','union','all']);
+  
+  const suspicious = queryTerms.filter(w =>
+    w.length >= 4 &&
+    !stopWords.has(w) &&
+    !allCols.some(c => c.toLowerCase().replace(/_/g,' ').includes(w) || w.includes(c.toLowerCase().replace(/_/g,' '))) &&
+    /^[a-z_]+$/.test(w)
+  );
+
+  if (!suspicious.length) return { missing: [], suggestions: [] };
+
+  // Search other datasets for these terms
+  const allDs = await pool.query('SELECT id, name, schema FROM datasets WHERE id != $1 LIMIT 20', [currentDatasetId]).catch(() => ({ rows: [] }));
+  const suggestions = [];
+  for (const term of suspicious) {
+    const matchingDs = [];
+    for (const ds of allDs.rows) {
+      const schema = Array.isArray(ds.schema) ? ds.schema : Object.entries(ds.schema || {}).map(([name]) => ({ name }));
+      const found = schema.find(c => {
+        const cn = c.name.toLowerCase().replace(/_/g, ' ');
+        return cn.includes(term) || term.includes(cn) || cn.startsWith(term.substring(0, 4));
+      });
+      if (found) matchingDs.push({ id: ds.id, name: ds.name, column: found.name });
+    }
+    if (matchingDs.length) {
+      suggestions.push({ term, foundIn: matchingDs });
+    }
+  }
+  return { missing: suspicious, suggestions };
+};
+
 const parseNL = async (text, datasetId) => {
   const t = tokenize(text);
   const words = t.split(' ');
 
   if (!datasetId) {
-    return { sql: `SELECT *\nFROM dataset\nLIMIT 100`, confidence: 0.3, detected: {}, schemaWarnings: ['No dataset selected — using generic placeholder table name'] };
+    return { sql: `SELECT *\nFROM dataset\nLIMIT 100`, confidence: 0.3, detected: {}, schemaWarnings: ['No dataset selected'], datasetSuggestions: [] };
   }
 
   const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [datasetId]).catch(() => ({ rows: [] }));
   if (!ds.rows[0]) {
-    return { sql: `SELECT *\nFROM dataset\nLIMIT 100`, confidence: 0.3, detected: {}, schemaWarnings: ['Dataset not found'] };
+    return { sql: `SELECT *\nFROM dataset\nLIMIT 100`, confidence: 0.3, detected: {}, schemaWarnings: ['Dataset not found'], datasetSuggestions: [] };
   }
 
   const raw = ds.rows[0].schema || [];
-  const schemaArr = Array.isArray(raw)
-    ? raw
-    : Object.entries(raw).map(([name, type]) => ({ name, type: String(type) }));
-
+  const schemaArr = Array.isArray(raw) ? raw : Object.entries(raw).map(([name, type]) => ({ name, type: String(type) }));
   const tableName = `data_${datasetId}`;
   const allCols = schemaArr.map(s => s.name);
   const numericCols = schemaArr.filter(s => ['integer','numeric','float','double','decimal','number','bigint'].some(k => String(s.type).toLowerCase().includes(k))).map(s => s.name);
@@ -95,20 +115,66 @@ const parseNL = async (text, datasetId) => {
 
   const schemaWarnings = [];
   let confidenceBonus = 0;
+  let confidencePenalty = 0;
 
-  // ── Detect aggregate function
+  // ── 1. Distribution / "X vs Y" pattern detection
+  // e.g. "count attrition yes vs no by department"
+  // e.g. "attrition vs region" / "status yes vs no"
+  let distributionCol = null;
+  let isDistribution = false;
+  const vsMatch = t.match(/\b(\w+)(?:\s+\w+)?\s+vs\.?\s+(?:\w+\s+)?by\b/i)
+    || t.match(/\b(\w+)\s+yes\s+vs\.?\s+no\b/i)
+    || t.match(/\b(\w+)\s+vs\.?\s+(\w+)\b/i);
+  if (vsMatch || /\bvs\b/.test(t)) {
+    isDistribution = true;
+    // Try to find the distribution column — the word before "vs" (after aggregation verb)
+    const vsIdx = words.indexOf('vs');
+    if (vsIdx > 0) {
+      // Walk backwards to find the column term (skip "yes", "no", value words)
+      const valueWords = new Set(['yes','no','true','false','0','1','male','female','active','inactive']);
+      for (let i = vsIdx - 1; i >= 0; i--) {
+        if (!valueWords.has(words[i]) && words[i].length >= 3) {
+          const m = fuzzyMatchCol(words[i], catCols) || fuzzyMatchCol(words[i], allCols);
+          if (m) { distributionCol = m.col; break; }
+          // Column not in schema — record as missing
+          if (/^[a-z_]+$/.test(words[i]) && words[i].length >= 4) {
+            schemaWarnings.push(`Column "${words[i]}" not found in "${ds.rows[0].name}" — it may be in a different dataset.`);
+            confidencePenalty += 0.2;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // ── 2. Aggregate function
   let aggFunc = null;
   for (const [word, fn] of Object.entries(AGGREGATES)) {
     if (t.includes(word)) { aggFunc = fn; break; }
   }
+  if (isDistribution && !aggFunc) aggFunc = 'COUNT';
 
-  // ── Detect numeric column being aggregated
-  const mentionedNumeric = numericCols.filter(c => t.includes(c.toLowerCase().replace(/_/g, ' ')) || t.includes(c.toLowerCase()));
+  // ── 3. Mentioned columns
   const mentionedCols = allCols.filter(c => t.includes(c.toLowerCase().replace(/_/g, ' ')) || t.includes(c.toLowerCase()));
-  let aggCol = mentionedNumeric[0] || numericCols[0] || null;
+  const mentionedNumeric = numericCols.filter(c => mentionedCols.includes(c));
+  let aggCol = mentionedNumeric[0] || (aggFunc === 'COUNT' ? null : numericCols[0]) || null;
   if (mentionedNumeric.length) confidenceBonus += 0.15;
 
-  // ── Detect GROUP BY — find "by X" or "per X" or "grouped by X"
+  // ── 4. Cross-dataset missing column lookup
+  const { missing, suggestions: datasetSuggestions } = await detectMissingColumns(words, allCols, datasetId);
+  if (missing.length) {
+    const alreadyWarned = missing.filter(w => !schemaWarnings.some(sw => sw.includes(w)));
+    // Only warn about meaningful missing terms not already reported
+    for (const term of alreadyWarned.slice(0, 3)) {
+      const found = datasetSuggestions.find(s => s.term === term);
+      if (found) {
+        schemaWarnings.push(`"${term}" not in "${ds.rows[0].name}" — found in: ${found.foundIn.map(f => `${f.name} (column: ${f.column})`).join(', ')}`);
+        confidencePenalty += 0.15;
+      }
+    }
+  }
+
+  // ── 5. GROUP BY detection
   let groupMatches = [];
   let groupRaw = null;
   const byPatterns = [
@@ -122,30 +188,34 @@ const parseNL = async (text, datasetId) => {
     const m = t.match(re);
     if (m) { groupRaw = m[1].trim(); break; }
   }
+
+  // Strip "vs ..." from groupRaw if present so it doesn't pollute the group-by term
+  if (groupRaw) groupRaw = groupRaw.replace(/\s*vs\.?\s+\w+/gi, '').trim();
+
   if (groupRaw) {
     groupMatches = parseGroupByTerms(groupRaw, catCols, dateCols, allCols);
     if (groupMatches.length) {
       groupMatches.forEach(gm => {
         if (gm.fuzzy) {
-          schemaWarnings.push(`"${gm.term}" not found in schema — using closest match "${gm.col}" for GROUP BY`);
+          schemaWarnings.push(`"${gm.term}" not found — using closest match "${gm.col}" for GROUP BY`);
           confidenceBonus += 0.08;
         } else {
           confidenceBonus += 0.15;
         }
       });
     } else {
-      // No column found for the group term
-      schemaWarnings.push(`No column matching "${groupRaw}" found in schema (${allCols.slice(0,6).join(', ')}${allCols.length > 6 ? '…' : ''}). GROUP BY omitted.`);
+      schemaWarnings.push(`No column matching "${groupRaw}" found in schema (${allCols.slice(0, 5).join(', ')}…). GROUP BY omitted.`);
+      confidencePenalty += 0.1;
     }
   }
 
-  // Fallback: if groupCol mentioned among catCols
+  // Fallback group-by from directly mentioned catCols
   if (!groupMatches.length) {
-    const directCatMatch = catCols.find(c => mentionedCols.includes(c));
+    const directCatMatch = catCols.find(c => mentionedCols.includes(c) && c !== distributionCol);
     if (directCatMatch) groupMatches = [{ col: directCatMatch, fuzzy: false, term: directCatMatch }];
   }
 
-  // ── Time grouping (monthly, weekly, etc.)
+  // ── 6. Time grouping
   let timeUnit = null;
   for (const [word, unit] of Object.entries(TIME_UNITS)) {
     if (t.includes(word)) {
@@ -158,7 +228,7 @@ const parseNL = async (text, datasetId) => {
     }
   }
 
-  // ── Filter / WHERE detection
+  // ── 7. Filter / WHERE
   const filterClauses = [];
   for (const [word, op] of Object.entries(COMPARISON)) {
     const idx = t.indexOf(word);
@@ -171,18 +241,18 @@ const parseNL = async (text, datasetId) => {
     }
   }
 
-  // ── LIMIT detection
+  // ── 8. LIMIT
   let limit = null;
   const limitMatch = t.match(/top\s+(\d+)|first\s+(\d+)|(\d+)\s+(?:rows?|records?|results?)/);
   if (limitMatch) { limit = parseInt(limitMatch[1] || limitMatch[2] || limitMatch[3]); confidenceBonus += 0.05; }
 
-  // ── Sort direction
+  // ── 9. Sort direction
   let orderDir = 'DESC';
   for (const [word, dir] of Object.entries(SORT_WORDS)) {
     if (t.includes(word)) { orderDir = dir; break; }
   }
 
-  // ── Build SQL
+  // ── 10. Build SQL
   const whereClause = filterClauses.length ? `WHERE ${filterClauses.join(' AND ')}` : '';
   const limitClause = limit ? `LIMIT ${limit}` : 'LIMIT 100';
   const groupCols = groupMatches.map(gm => gm.col);
@@ -190,13 +260,29 @@ const parseNL = async (text, datasetId) => {
   let sql = '';
   let queryType = 'select';
 
-  if (/show|list|display|get\s+all|fetch|select/.test(t) && !aggFunc && !groupCols.length) {
-    // Simple SELECT
+  if (isDistribution && distributionCol) {
+    // ── DISTRIBUTION: "X yes vs no by Y" → GROUP BY Y, X showing count per value
+    const distExpr = `"${distributionCol}"`;
+    const groupExprs = groupCols.length
+      ? [...groupCols.map(g => `"${g}"`), distExpr].join(', ')
+      : distExpr;
+    const selectCols = groupCols.length
+      ? [...groupCols.map(g => `"${g}"`), distExpr].join(',\n  ')
+      : distExpr;
+    sql = `SELECT ${selectCols},\n  COUNT(*) AS count\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}\nGROUP BY ${groupExprs}\nORDER BY ${groupCols.length ? `"${groupCols[0]}"` : distExpr}, ${distExpr}\n${limitClause}`;
+    queryType = 'distribution';
+    confidenceBonus += 0.15;
+  } else if (isDistribution && !distributionCol && groupCols.length) {
+    // Fallback: "vs" detected but col not found — distribution over the group col only
+    const gc = groupCols[0];
+    sql = `SELECT "${gc}", COUNT(*) AS count\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}\nGROUP BY "${gc}"\nORDER BY count DESC\n${limitClause}`;
+    queryType = 'distribution';
+    confidenceBonus += 0.05;
+  } else if (/show|list|display|get\s+all|fetch|select/.test(t) && !aggFunc && !groupCols.length) {
     const colList = mentionedCols.length ? mentionedCols.map(c => `"${c}"`).join(', ') : '*';
     sql = `SELECT ${colList}\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}\n${limitClause}`;
     queryType = 'select';
   } else if (aggFunc && groupCols.length) {
-    // Aggregation WITH GROUP BY
     const aggExpr = aggFunc === 'COUNT' ? 'COUNT(*)' : `${aggFunc}("${aggCol}")`;
     const aggAlias = `${aggFunc.toLowerCase()}_${aggCol || 'count'}`;
     if (groupCols.length === 1) {
@@ -205,15 +291,13 @@ const parseNL = async (text, datasetId) => {
       const groupAlias = timeUnit || gc;
       sql = `SELECT ${groupExpr} AS ${groupAlias},\n  ${aggExpr} AS ${aggAlias}\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}\nGROUP BY ${groupExpr}\nORDER BY ${aggExpr} ${orderDir}\n${limitClause}`;
     } else {
-      // Multi-column GROUP BY
-      const groupExprs = groupCols.map(gc => `"${gc}"`).join(', ');
-      const selectGroupCols = groupCols.map(gc => `"${gc}"`).join(',\n  ');
+      const groupExprs = groupCols.map(g => `"${g}"`).join(', ');
+      const selectGroupCols = groupCols.map(g => `"${g}"`).join(',\n  ');
       sql = `SELECT ${selectGroupCols},\n  ${aggExpr} AS ${aggAlias}\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}\nGROUP BY ${groupExprs}\nORDER BY ${aggExpr} ${orderDir}\n${limitClause}`;
     }
     queryType = 'aggregation';
     confidenceBonus += 0.1;
   } else if (aggFunc && aggCol) {
-    // Aggregation WITHOUT GROUP BY (scalar)
     const aggExpr = aggFunc === 'COUNT' ? 'COUNT(*)' : `${aggFunc}("${aggCol}")`;
     sql = `SELECT ${aggExpr} AS result\nFROM ${tableName}${whereClause ? '\n' + whereClause : ''}`;
     queryType = 'scalar';
@@ -230,16 +314,16 @@ const parseNL = async (text, datasetId) => {
     queryType = 'select';
   }
 
-  // ── Confidence: base depends on schema richness + how many pieces resolved
   const schemaBonus = Math.min(0.1, allCols.length * 0.01);
   const baseConf = 0.45;
-  const confidence = Math.min(0.97, baseConf + schemaBonus + confidenceBonus);
+  const confidence = Math.min(0.97, Math.max(0.25, baseConf + schemaBonus + confidenceBonus - confidencePenalty));
 
   return {
     sql: sql.trim().replace(/\n{2,}/g, '\n'),
     confidence: +confidence.toFixed(2),
-    detected: { aggFunc, aggCol, groupCols, filterClauses, limit, timeUnit, mentionedCols, queryType },
+    detected: { aggFunc, aggCol, groupCols, filterClauses, limit, timeUnit, mentionedCols, queryType, distributionCol },
     schemaWarnings,
+    datasetSuggestions,
     schema: { columns: allCols, numeric: numericCols, categorical: catCols, date: dateCols },
   };
 };
@@ -255,7 +339,15 @@ const handleConvert = async (req, res) => {
       'INSERT INTO nl_queries (natural_text, generated_sql, dataset_id, confidence, user_id) VALUES ($1,$2,$3,$4,$5)',
       [inputText, result.sql, dsId || null, result.confidence, req.user.id]
     ).catch(() => {});
-    res.json({ input: inputText, sql: result.sql, confidence: result.confidence, detected: result.detected, schemaWarnings: result.schemaWarnings, schema: result.schema });
+    res.json({
+      input: inputText,
+      sql: result.sql,
+      confidence: result.confidence,
+      detected: result.detected,
+      schemaWarnings: result.schemaWarnings,
+      datasetSuggestions: result.datasetSuggestions,
+      schema: result.schema,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 

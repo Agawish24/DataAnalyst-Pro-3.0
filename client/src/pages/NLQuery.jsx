@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import api from '../api/client';
 import toast from 'react-hot-toast';
-import { Sparkles, Play, Copy, Clock, ChevronRight, BarChart2, Lightbulb, AlertTriangle, Database, CheckCircle } from 'lucide-react';
+import { Sparkles, Play, Copy, Clock, ChevronRight, BarChart2, Lightbulb, AlertTriangle, Database, CheckCircle, ArrowRightCircle } from 'lucide-react';
 
 export default function NLQuery() {
   const { datasets, fetchDatasets, activeDataset, selectDataset } = useData();
@@ -54,6 +54,8 @@ export default function NLQuery() {
 
   const groupCols = result?.detected?.groupCols || [];
   const hasWarnings = result?.schemaWarnings?.length > 0 && !dismissedWarnings;
+  const canRunQuery = result && activeDataset && result.confidence >= 0.85;
+  const datasetSuggestions = result?.datasetSuggestions || [];
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
@@ -117,6 +119,33 @@ export default function NLQuery() {
         </div>
       </div>
 
+      {/* Cross-dataset suggestion banner */}
+      {datasetSuggestions.length > 0 && (
+        <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10, padding: '12px 16px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <ArrowRightCircle size={16} color="#6366f1" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ color: '#818cf8', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Column found in another dataset</div>
+              {datasetSuggestions.map((s, i) => (
+                <div key={i} style={{ marginBottom: 6 }}>
+                  <span style={{ color: '#9ca3af', fontSize: 12 }}>
+                    "<span style={{ color: '#f59e0b', fontWeight: 600 }}>{s.term}</span>" is not in the active dataset — found in:
+                  </span>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                    {s.foundIn.map(f => (
+                      <button key={f.id} onClick={() => { selectDataset(datasets.find(d => d.id === f.id)); toast.success(`Switched to ${f.name}`); }}
+                        style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.15)', color: '#818cf8', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Database size={10} /> {f.name} <span style={{ color: '#6b7280' }}>({f.column})</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Schema warnings / refinement hints */}
       {hasWarnings && (
         <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
@@ -163,7 +192,18 @@ export default function NLQuery() {
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => copy(result.sql)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#9ca3af', cursor: 'pointer', padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Copy size={12} /> Copy</button>
-                {activeDataset && <button onClick={runSQL} disabled={running} style={{ background: 'none', border: '1px solid #10b981', borderRadius: 6, color: '#10b981', cursor: running ? 'not-allowed' : 'pointer', padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Play size={12} /> {running ? 'Running...' : 'Run Query'}</button>}
+                {activeDataset && (
+                  <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                    <button onClick={runSQL} disabled={running || !canRunQuery}
+                      title={!canRunQuery ? `Confidence ${Math.round(result.confidence * 100)}% — needs ≥85% to run automatically. Copy the SQL to run it manually.` : ''}
+                      style={{ background: 'none', border: `1px solid ${canRunQuery ? '#10b981' : '#4b5563'}`, borderRadius: 6, color: canRunQuery ? '#10b981' : '#6b7280', cursor: (running || !canRunQuery) ? 'not-allowed' : 'pointer', padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, opacity: canRunQuery ? 1 : 0.6 }}>
+                      <Play size={12} /> {running ? 'Running...' : 'Run Query'}
+                    </button>
+                    {!canRunQuery && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>≥85% required</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <pre style={{ padding: 16, margin: 0, color: '#86efac', fontSize: 13, fontFamily: 'Monaco, monospace', overflowX: 'auto', background: '#0d0d1a', lineHeight: 1.6 }}>{result.sql}</pre>
@@ -179,7 +219,10 @@ export default function NLQuery() {
                 {result.detected.aggFunc && (
                   <span style={{ color: '#6b7280', fontSize: 12 }}>Agg: <strong style={{ color: '#8b5cf6' }}>{result.detected.aggFunc}</strong></span>
                 )}
-                {result.detected.aggCol && (
+                {result.detected.distributionCol && (
+                  <span style={{ color: '#6b7280', fontSize: 12 }}>Split by: <strong style={{ color: '#ec4899' }}>{result.detected.distributionCol}</strong></span>
+                )}
+                {result.detected.aggCol && !result.detected.distributionCol && (
                   <span style={{ color: '#6b7280', fontSize: 12 }}>Column: <strong style={{ color: '#f59e0b' }}>{result.detected.aggCol}</strong></span>
                 )}
                 {groupCols.length > 0 && (
