@@ -133,11 +133,11 @@ router.get('/connect', async (req, res) => {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: CLIENT_ID,
-    scope: SCOPES,
     redirect_uri: redirectUri,
     access_type: 'offline',
     state,
   });
+  // Note: scope is optional for some Zoho app types; if needed, add: scope: SCOPES,
   res.redirect(`https://accounts.zoho.com/oauth/v2/auth?${params}`);
 });
 
