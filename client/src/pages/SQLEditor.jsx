@@ -94,7 +94,19 @@ export default function SQLEditor() {
               <h3 className="card-title">Columns</h3>
               <div className="column-list">
                 {tableInfo.columns.map(col => (
-                  <div key={col.column_name} className="col-item" onClick={() => setSql(prev => prev + ` "${col.column_name}"`)}>
+                  <div key={col.column_name} className="col-item" onClick={() => {
+                    const ta = textareaRef.current;
+                    const insert = `"${col.column_name}"`;
+                    if (ta) {
+                      const start = ta.selectionStart;
+                      const end = ta.selectionEnd;
+                      const newSql = sql.substring(0, start) + insert + sql.substring(end);
+                      setSql(newSql);
+                      setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + insert.length; ta.focus(); }, 0);
+                    } else {
+                      setSql(prev => prev + ' ' + insert);
+                    }
+                  }}>
                     <span className="col-name">{col.column_name}</span>
                     <span className="col-type">{col.data_type.replace('character varying', 'varchar').replace('timestamp without time zone', 'timestamp')}</span>
                   </div>
