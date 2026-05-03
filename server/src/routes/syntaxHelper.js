@@ -995,7 +995,7 @@ const checkPythonLines = (lines) => {
     // ── 8. Assignment instead of comparison in while/if condition ────────────
     if (/^\s*(while|if|elif)\s+\w+\s*=\s*\w/.test(raw) && !/^\s*(while|if|elif)\s+\w+\s*==/.test(raw)) {
       push('error', lineNum,
-        `Line ${lineNum}: Assignment (=) used in ${trimmed.split(/\s/)[0]} condition — use == for comparison`,
+        `Line ${lineNum}: Assignment (=) used in ${trimmed.split(/\s/)[0]} condition — this is a SyntaxError; use == for equality comparison`,
         'Replace = with ==');
     }
 
@@ -1058,8 +1058,8 @@ const checkPythonLines = (lines) => {
     if (/f["']/.test(trimmed)) {
       if (/f["'][^"']*\{[^}]*\)/.test(trimmed) && !/f["'][^"']*\{[^}]*\}/.test(trimmed)) {
         push('error', lineNum,
-          `Line ${lineNum}: f-string expression uses ")" to close instead of "}" — use f"Hello {name}"`,
-          'Replace ) with } inside the f-string expression');
+          `Line ${lineNum}: Unterminated f-string expression — used ")" to close instead of "}"; syntax is f"Hello {name}"`,
+          'Replace ) with } inside the f-string expression: f"text {variable}"');
       }
     }
 
@@ -1427,6 +1427,8 @@ const checkPythonAdvanced = (lines) => {
   const classNames = new Set();
   const tupleVars = new Set(); // variables assigned a tuple literal
   const allAssigned = new Set(); // every LHS name seen anywhere
+  const listSizes = {};       // varName → element count (for OOB detection)
+  const dictLiteralKeys = {}; // varName → Set<string> of known keys
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -1497,6 +1499,23 @@ const checkPythonAdvanced = (lines) => {
     // global / nonlocal name
     const globalM = noComment.match(/^(?:global|nonlocal)\s+(.+)/);
     if (globalM) globalM[1].split(',').forEach(n => { defined.add(n.trim()); allAssigned.add(n.trim()); });
+
+    // Track list literal sizes: name = [1,2,3,4,5]  →  listSizes["name"] = 5
+    const listLitM = noComment.match(/^(\w+)\s*=\s*\[([^\]]*)\]/);
+    if (listLitM) {
+      const content = listLitM[2].trim();
+      listSizes[listLitM[1]] = content === '' ? 0 : content.split(',').filter(a => a.trim()).length;
+    }
+
+    // Track dict literal keys: name = {"a":1, "b":2}  →  dictLiteralKeys["name"] = Set{"a","b"}
+    const dictLitM = noComment.match(/^(\w+)\s*=\s*\{([^}]+)\}/);
+    if (dictLitM) {
+      const keySet = new Set();
+      const keyRe = /["']([^"']+)["']\s*:/g;
+      let km;
+      while ((km = keyRe.exec(dictLitM[2])) !== null) keySet.add(km[1]);
+      if (keySet.size > 0) dictLiteralKeys[dictLitM[1]] = keySet;
+    }
   }
 
   // ── Pass 2: per-line detectors ────────────────────────────────────────────
@@ -1546,8 +1565,8 @@ const checkPythonAdvanced = (lines) => {
       if (paramSet.size < params.length) {
         const dups = params.filter((p, idx) => params.indexOf(p) !== idx);
         push('error', lineNum,
-          `Line ${lineNum}: Duplicate parameter name "${dups[0]}" in function definition — each parameter must be unique`,
-          'Rename duplicate parameters so each has a unique name');
+          `Line ${lineNum}: Duplicate parameter name "${dups[0]}" in function definition — this is a SyntaxError in Python 3; each parameter must have a unique name`,
+          `Rename the duplicate: def ${noComment.match(/def\s+(\w+)/)?.[1] || 'func'}(${dups[0]}, ${dups[0]}2)`);
       }
     }
 
@@ -1659,8 +1678,8 @@ const checkPythonAdvanced = (lines) => {
       }
       if (enclosingFunc) {
         push('warning', lineNum,
-          `Line ${lineNum}: "return" with no value in "${enclosingFunc}" — returns None implicitly; add a value if this function should return data`,
-          'Add a return value: return result  or  return None explicitly');
+          `Line ${lineNum}: Empty return body in "${enclosingFunc}" — bare "return" returns None; if intentional use "return None" explicitly, otherwise add a return value`,
+          'Add a return value: return result  or  write return None to make the intent explicit');
       }
     }
 
@@ -1747,8 +1766,8 @@ const checkPythonAdvanced = (lines) => {
     const infRecM = noComment.match(/^def\s+(\w+)\s*\([^)]*\)\s*:\s*return\s+(\w+)\s*\(/);
     if (infRecM && infRecM[1] === infRecM[2]) {
       push('error', lineNum,
-        `Line ${lineNum}: Infinite recursion — "${infRecM[1]}" calls itself with no base case; this will cause a RecursionError`,
-        `Add a base case: if n <= 0: return result  before the recursive call`);
+        `Line ${lineNum}: Infinite recursion — "${infRecM[1]}" calls itself unconditionally with no base case; this will cause a RecursionError`,
+        `Add a base case before the recursive call, e.g.: if n <= 0: return 1`);
     }
     // Multi-line version: single-statement body on the next line
     if (/^def\s+(\w+)\s*\([^)]*\):$/.test(noComment)) {
@@ -1759,8 +1778,8 @@ const checkPythonAdvanced = (lines) => {
         const recM = nextNC.match(/^return\s+(\w+)\s*\(/);
         if (recM && recM[1] === funcName) {
           push('error', i + 2,
-            `Line ${i + 2}: Infinite recursion — "${funcName}" calls itself with no base case; this will cause a RecursionError`,
-            `Add a base case before the recursive call: if n <= 0: return result`);
+            `Line ${i + 2}: Infinite recursion — "${funcName}" calls itself unconditionally with no base case; this will cause a RecursionError`,
+            `Add a base case before the recursive call, e.g.: if n <= 0: return 1`);
         }
       }
     }
@@ -1924,6 +1943,61 @@ const checkPythonAdvanced = (lines) => {
           `Line ${lineNum}: "${varName}" used in "+=" but was never assigned a value — this will cause a NameError`,
           `Assign an initial value first: ${varName} = 0  then use ${varName} += 1`);
       }
+    }
+
+    // ── II. List index out of range (constant index on known-size list) ────
+    const oobM = noComment.match(/\b([a-zA-Z_]\w*)\s*\[\s*(\d+)\s*\]/);
+    if (oobM) {
+      const lName = oobM[1];
+      const idx   = parseInt(oobM[2], 10);
+      if (listSizes[lName] !== undefined && idx >= listSizes[lName]) {
+        const sz = listSizes[lName];
+        push('error', lineNum,
+          `Line ${lineNum}: IndexError — "${lName}" has ${sz} element${sz !== 1 ? 's' : ''} (valid indices: 0–${sz - 1}) but index ${idx} is out of range`,
+          `Use a valid index (0 to ${sz - 1}), or use ${lName}[-1] for the last element`);
+      }
+    }
+
+    // ── JJ. Dict access with a key not in the literal definition ──────────
+    const dictAccM = noComment.match(/\b([a-zA-Z_]\w*)\s*\[\s*["']([^"']+)["']\s*\]/);
+    if (dictAccM) {
+      const dName = dictAccM[1];
+      const dKey  = dictAccM[2];
+      if (dictLiteralKeys[dName] && !dictLiteralKeys[dName].has(dKey)) {
+        const knownKeys = [...dictLiteralKeys[dName]].map(k => `"${k}"`).join(', ');
+        push('error', lineNum,
+          `Line ${lineNum}: KeyError — "${dKey}" is not a key in "${dName}"; defined keys are: ${knownKeys}`,
+          `Use .get("${dKey}", default) to safely access, or check with: if "${dKey}" in ${dName}:`);
+      }
+    }
+
+    // ── KK. Import of a non-standard / unknown module ─────────────────────
+    const KNOWN_MODULES = new Set([
+      // Python stdlib (key subset)
+      'abc','ast','asyncio','base64','builtins','cmath','collections','contextlib',
+      'copy','csv','datetime','decimal','difflib','email','enum','fractions','ftplib',
+      'functools','gc','glob','gzip','hashlib','heapq','hmac','html','http','importlib',
+      'inspect','io','itertools','json','keyword','linecache','logging','math','mimetypes',
+      'multiprocessing','numbers','operator','os','pathlib','pickle','platform','pprint',
+      'queue','random','re','shutil','signal','socket','sqlite3','ssl','statistics',
+      'string','struct','subprocess','sys','tarfile','tempfile','textwrap','threading',
+      'time','timeit','tkinter','traceback','types','typing','unittest','urllib','uuid',
+      'warnings','weakref','xml','xmlrpc','zipfile','zlib','zoneinfo',
+      // Common third-party
+      'numpy','np','pandas','pd','matplotlib','plt','scipy','sklearn','tensorflow','tf',
+      'torch','keras','flask','django','fastapi','requests','sqlalchemy','pytest','boto3',
+      'redis','celery','pydantic','aiohttp','httpx','click','rich','PIL','cv2','seaborn',
+      'plotly','streamlit','gradio','transformers','langchain','openai','anthropic',
+      'pymongo','psycopg2','pymysql','aiosqlite','sqlmodel','alembic','peewee',
+      'bs4','lxml','yaml','toml','dotenv','tqdm','colorama','tabulate','arrow',
+      'pendulum','dateutil','pytz','paramiko','fabric','invoke','nox','black','isort',
+      'flake8','mypy','pylint','bandit','attrs','dataclasses','pydantic','marshmallow',
+    ]);
+    const impBadM = noComment.match(/^import\s+([a-zA-Z_]\w*)(?:\s+as\s+\w+)?\s*$/);
+    if (impBadM && !KNOWN_MODULES.has(impBadM[1])) {
+      push('warning', lineNum,
+        `Line ${lineNum}: "import ${impBadM[1]}" — "${impBadM[1]}" is not a recognised standard library or common package; this may cause a ModuleNotFoundError`,
+        `Check the module name spelling, or install it: pip install ${impBadM[1]}`);
     }
   }
 

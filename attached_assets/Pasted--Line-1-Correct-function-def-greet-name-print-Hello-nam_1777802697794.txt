@@ -1,0 +1,230 @@
+# Line 1: Correct function
+def greet(name):
+    print("Hello", name)
+
+# Line 5: Error (missing colon)
+def bad_func(x)
+    return x * 2
+
+# Line 9: Correct loop
+for i in range(5):
+    print(i)
+
+# Line 13: Error (wrong indentation)
+for j in range(3):
+print(j)
+
+# Line 17: Error (undefined variable)
+print(total_value)
+
+# Line 20: Correct class
+class Person:
+    def __init__(self, name):
+        self.name = name
+
+# Line 25: Error (empty function body)
+def do_nothing():
+    
+
+# Line 29: Error (wrong argument count)
+greet()
+
+# Line 32: Correct list comprehension
+squares = [x**2 for x in range(10)]
+
+# Line 35: Error (typo in keyword)
+prnt("Oops")
+
+# Line 38: Correct dictionary
+data = {"a": 1, "b": 2}
+
+# Line 41: Error (duplicate keys)
+dup = {"x": 1, "x": 2}
+
+# Line 44: Correct import
+import math
+
+# Line 46: Error (invalid import)
+import nonexist
+
+# Line 49: Correct math usage
+print(math.sqrt(16))
+
+# Line 52: Error (wrong type for sqrt)
+print(math.sqrt("sixteen"))
+
+# Line 55: Correct try/except
+try:
+    val = int("123")
+except ValueError:
+    print("Bad value")
+
+# Line 61: Error (except missing colon)
+try:
+    val = int("abc")
+except ValueError
+    print("Error")
+
+# Line 66: Correct if/else
+if True:
+    print("Yes")
+else:
+    print("No")
+
+# Line 71: Error (elif missing colon)
+if False:
+    print("No")
+elif True
+    print("Yes")
+
+# Line 76: Correct lambda
+f = lambda x: x + 1
+
+# Line 78: Error (lambda missing colon)
+g = lambda y y + 1
+
+# Line 81: Correct recursion
+def fact(n):
+    if n == 0:
+        return 1
+    return n * fact(n-1)
+
+# Line 87: Error (infinite recursion)
+def bad_fact(n):
+    return bad_fact(n)
+
+# Line 91: Correct with open
+with open("file.txt", "w") as f:
+    f.write("Hello")
+
+# Line 95: Error (wrong mode)
+with open("file.txt", "z") as f:
+    f.write("Bad")
+
+# Line 99: Correct list slicing
+nums = [1,2,3,4,5]
+print(nums[1:3])
+
+# Line 103: Error (index out of range)
+print(nums[99])
+
+# Line 106: Correct tuple
+t = (1,2,3)
+
+# Line 108: Error (tuple assignment)
+t[0] = 5
+
+# Line 111: Correct set
+s = {1,2,3}
+
+# Line 113: Error (unhashable type)
+s.add([4,5])
+
+# Line 116: Correct function default
+def add(a, b=10):
+    return a+b
+
+# Line 119: Error (duplicate argument names)
+def bad(a, a):
+    return a
+
+# Line 122: Correct generator
+def gen():
+    for i in range(3):
+        yield i
+
+# Line 126: Error (yield outside function)
+yield 5
+
+# Line 129: Correct f-string
+name = "Abdullah"
+print(f"Hello {name}")
+
+# Line 132: Error (bad f-string braces)
+print(f"Hello {name")
+
+# Line 135: Correct bool
+flag = True
+
+# Line 137: Error (undefined True)
+flag = tru
+
+# Line 140: Correct None check
+if flag is None:
+    print("None")
+
+# Line 143: Error (is used incorrectly)
+if flag = None:
+    print("Bad")
+
+# Line 146: Correct list append
+lst = []
+lst.append(5)
+
+# Line 149: Error (append missing argument)
+lst.append()
+
+# Line 152: Correct dict access
+print(data["a"])
+
+# Line 154: Error (missing key)
+print(data["z"])
+
+# Line 157: Correct function call
+print(add(5))
+
+# Line 159: Error (wrong arg type)
+print(add("five"))
+
+# Line 162: Correct while loop
+i = 0
+while i < 3:
+    i += 1
+
+# Line 166: Error (while missing colon)
+while i < 5
+    i += 1
+
+# Line 169: Correct break
+for i in range(5):
+    if i == 2:
+        break
+
+# Line 174: Error (break outside loop)
+break
+
+# Line 176: Correct continue
+for i in range(5):
+    if i == 2:
+        continue
+
+# Line 181: Error (continue outside loop)
+continue
+
+# Line 183: Correct assert
+assert 2+2 == 4
+
+# Line 185: Error (assert missing expression)
+assert
+
+# Line 187: Correct raise
+raise ValueError("Bad")
+
+# Line 189: Error (raise missing exception)
+raise
+
+# Line 191: Correct class inheritance
+class Employee(Person):
+    pass
+
+# Line 194: Error (inherit from undefined)
+class Manager(Boss):
+    pass
+
+# Line 197: Correct function return
+def foo():
+    return 42
+
+# Line 200: Error (return missing value)
+def bar():
+    return

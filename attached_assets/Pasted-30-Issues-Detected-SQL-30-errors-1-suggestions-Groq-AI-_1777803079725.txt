@@ -1,0 +1,64 @@
+30 Issues Detected
+SQL • 30 errors, 1 suggestions
+Groq AI
+Issues & Fixes (30)
+Line ~10: Missing comma after column/constraint definition in CREATE TABLE — each entry must end with a comma (except the last before ")")
+Fix: Add a comma at the end of the column definition
+Line 27: "FORM" is not a SQL keyword — did you mean "FROM"?
+Fix: Replace FORM with FROM
+Line 33: UPDATE SET clause looks malformed — multiple assignments need commas, and filter needs WHERE keyword
+Fix: Use: SET col1=val1, col2=val2 WHERE condition
+Line 33: UPDATE SET clause missing comma between assignments
+Fix: Separate assignments with commas: SET col1=val1, col2=val2
+Line 48: Duplicate table alias — same alias used twice after table name
+Fix: Remove the duplicate alias: FROM tablename alias
+Line 48: Possible duplicate alias — table followed by two plain identifiers; each table should have only one alias
+Fix: Use single alias: FROM tablename alias
+Line 55: Possible keyword typo — "MONY" did you mean "MONEY"?
+Fix: Replace "mony" with "money"
+Line 61: Possible keyword typo — "DRIP" did you mean "DROP"?
+Fix: Replace "drip" with "drop"
+Line 67: CREATE INDEX missing ON keyword — "CREATE INDEX name ON table(col)"
+Fix: Add ON: CREATE INDEX idx_name ON tablename(column)
+Line 73: Standalone BY — missing GROUP, ORDER, or PARTITION before BY
+Fix: Add GROUP before BY: GROUP BY column_name
+Line ~74: HAVING clause used without GROUP BY — HAVING filters groups and requires GROUP BY
+Fix: Add GROUP BY before HAVING, or replace HAVING with WHERE
+Line 82: CREATE VIEW missing AS keyword — "CREATE VIEW name AS SELECT ..."
+Fix: Add AS: CREATE VIEW viewname AS SELECT ...
+Line ~86: INSERT missing VALUES keyword — "INSERT INTO t (cols) VALUES (vals)"
+Fix: Add VALUES before the data parenthesis
+Line 94: Subquery in WHERE clause missing comparison operator — use IN, EXISTS, =, etc.
+Fix: Add IN before subquery: WHERE col IN (SELECT ...)
+Line 105: Possible keyword typo — "REFERENCE" did you mean "REFERENCES"?
+Fix: Replace "reference" with "references"
+Line 105: "REFERENCE" should be "REFERENCES" (with S) — foreign key constraint keyword
+Fix: Use REFERENCES: col INT REFERENCES table(col)
+Line ~112: UNION column count mismatch — each SELECT must return the same number of columns (got: 2 vs 1)
+Fix: Make all SELECT lists in the UNION return the same number of columns
+Line 127: CHECK constraint requires parentheses — CHECK (amount > 0), not CHECK amount > 0
+Fix: Add parentheses: CHECK (condition)
+Line 134: LIKE pattern must be a quoted string — LIKE 'A%', not LIKE A%
+Fix: Wrap the pattern in single quotes: LIKE 'A%'
+Line 140: BETWEEN requires AND — "BETWEEN val1 AND val2"
+Fix: Add AND: BETWEEN 3000 AND 6000
+Line 146: DISTINCT must immediately follow SELECT — "SELECT DISTINCT col", not "SELECT col DISTINCT"
+Fix: Move DISTINCT right after SELECT
+Line 152: "LIMIT TO" is not valid SQL — use "LIMIT n"
+Fix: Remove TO: LIMIT 10
+Line 158: DROP "emp_view" is missing the object-type keyword — use DROP TABLE, DROP VIEW, DROP SCHEMA, etc.
+Fix: Specify object type: DROP TABLE emp_view (or DROP VIEW / DROP SCHEMA)
+Line 164: ALTER TABLE DROP may be missing COLUMN keyword — use ALTER TABLE t DROP COLUMN col_name
+Fix: Add COLUMN: ALTER TABLE tablename DROP COLUMN column_name
+Line 170: UPDATE SET clause missing comma between assignments
+Fix: Separate assignments with commas: SET col1=val1, col2=val2
+Line 176: Subquery missing SELECT — use IN (SELECT col FROM table WHERE ...)
+Fix: Add SELECT: IN (SELECT col FROM table WHERE condition)
+Line 182: EXISTS requires a subquery — use EXISTS (SELECT 1 FROM table WHERE ...)
+Fix: Add subquery: EXISTS (SELECT 1 FROM table WHERE condition)
+Line 188: CREATE SCHEMA requires a name — CREATE SCHEMA schema_name
+Fix: Add schema name: CREATE SCHEMA my_schema
+Line 194: DROP "company" is missing the object-type keyword — use DROP TABLE, DROP VIEW, DROP SCHEMA, etc.
+Fix: Specify object type: DROP TABLE company (or DROP VIEW / DROP SCHEMA)
+Unmatched parentheses: 35 opening vs 36 closing — 1 extra ")"
+Fix: Remove 1 extra closing parenthesis/es ")"

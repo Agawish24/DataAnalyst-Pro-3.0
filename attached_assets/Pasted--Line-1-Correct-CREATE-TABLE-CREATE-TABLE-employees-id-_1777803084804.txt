@@ -1,0 +1,203 @@
+-- Line 1: Correct CREATE TABLE
+CREATE TABLE employees (
+    id INT PRIMARY KEY,
+    name VARCHAR(100),
+    department_id INT,
+    hire_date DATE
+);
+
+-- Line 8: Error (missing comma)
+CREATE TABLE departments (
+    id INT PRIMARY KEY
+    dept_name VARCHAR(50)
+);
+
+-- Line 13: Correct INSERT
+INSERT INTO employees (id, name, department_id, hire_date)
+VALUES (1, 'Alice', 10, '2020-01-15');
+
+-- Line 17: Error (extra parenthesis)
+INSERT INTO employees (id, name, department_id, hire_date))
+VALUES (2, 'Bob', 20, '2021-03-22');
+
+-- Line 22: Correct SELECT
+SELECT id, name FROM employees WHERE department_id = 10;
+
+-- Line 25: Error (wrong keyword FORM)
+SELECT id, name FORM employees;
+
+-- Line 28: Correct UPDATE
+UPDATE employees SET department_id = 30 WHERE id = 2;
+
+-- Line 31: Error (missing WHERE keyword)
+UPDATE employees SET department_id = 40 id = 3;
+
+-- Line 34: Correct DELETE
+DELETE FROM employees WHERE id = 1;
+
+-- Line 37: Error (invalid column reference)
+DELETE FROM employees WHERE employee_id = 99;
+
+-- Line 40: Correct JOIN
+SELECT e.name, d.dept_name
+FROM employees e
+JOIN departments d ON e.department_id = d.id;
+
+-- Line 45: Error (duplicate alias)
+SELECT e.name, e.name
+FROM employees e e
+JOIN departments d ON e.department_id = d.id;
+
+-- Line 50: Correct ALTER
+ALTER TABLE employees ADD COLUMN salary DECIMAL(10,2);
+
+-- Line 53: Error (typo in datatype)
+ALTER TABLE employees ADD COLUMN bonus MONY;
+
+-- Line 57: Correct DROP
+DROP TABLE IF EXISTS temp_table;
+
+-- Line 60: Error (typo in keyword)
+DRIP TABLE old_table;
+
+-- Line 63: Correct CREATE INDEX
+CREATE INDEX idx_emp_dept ON employees(department_id);
+
+-- Line 66: Error (missing ON keyword)
+CREATE INDEX idx_wrong employees(department_id);
+
+-- Line 70: Correct GROUP BY
+SELECT department_id, COUNT(*) FROM employees GROUP BY department_id;
+
+-- Line 73: Error (standalone BY)
+SELECT department_id, COUNT(*) BY employees;
+
+-- Line 76: Error (HAVING without GROUP BY)
+SELECT name FROM employees HAVING COUNT(*) > 1;
+
+-- Line 80: Correct VIEW
+CREATE VIEW emp_view AS SELECT id, name FROM employees;
+
+-- Line 83: Error (missing AS keyword)
+CREATE VIEW bad_view SELECT id FROM employees;
+
+-- Line 87: Correct INSERT
+INSERT INTO departments (id, dept_name) VALUES (1, 'HR');
+
+-- Line 90: Error (missing VALUES keyword)
+INSERT INTO departments (id, dept_name) (2, 'Finance');
+
+-- Line 93: Correct subquery
+SELECT name FROM employees WHERE department_id IN (SELECT id FROM departments);
+
+-- Line 96: Error (missing IN keyword)
+SELECT name FROM employees WHERE department_id (SELECT id FROM departments);
+
+-- Line 100: Correct foreign key
+CREATE TABLE projects (
+    id INT PRIMARY KEY,
+    dept_id INT REFERENCES departments(id)
+);
+
+-- Line 105: Error (typo REFERENCES)
+CREATE TABLE bad_projects (
+    id INT PRIMARY KEY,
+    dept_id INT REFERENCE departments(id)
+);
+
+-- Line 110: Correct UNION
+SELECT id, name FROM employees
+UNION
+SELECT id, dept_name FROM departments;
+
+-- Line 114: Error (column count mismatch in UNION)
+SELECT id, name FROM employees
+UNION
+SELECT dept_name FROM departments;
+
+-- Line 118: Correct CHECK
+CREATE TABLE accounts (
+    id INT PRIMARY KEY,
+    balance DECIMAL(10,2) CHECK (balance >= 0)
+);
+
+-- Line 123: Error (missing parentheses in CHECK)
+CREATE TABLE bad_accounts (
+    id INT PRIMARY KEY,
+    amount DECIMAL(10,2) CHECK amount > 0
+);
+
+-- Line 128: Correct LIKE
+SELECT name FROM employees WHERE name LIKE 'A%';
+
+-- Line 131: Error (LIKE pattern not quoted)
+SELECT name FROM employees WHERE name LIKE A%;
+
+-- Line 134: Correct BETWEEN
+SELECT salary FROM employees WHERE salary BETWEEN 3000 AND 6000;
+
+-- Line 137: Error (BETWEEN missing AND)
+SELECT salary FROM employees WHERE salary BETWEEN 3000 6000;
+
+-- Line 140: Correct DISTINCT
+SELECT DISTINCT dept_name FROM departments;
+
+-- Line 143: Error (DISTINCT misplaced)
+SELECT dept_name DISTINCT FROM departments;
+
+-- Line 146: Correct LIMIT
+SELECT * FROM employees LIMIT 10;
+
+-- Line 149: Error (LIMIT TO not valid)
+SELECT * FROM employees LIMIT TO 10;
+
+-- Line 152: Correct DROP VIEW
+DROP VIEW IF EXISTS emp_view;
+
+-- Line 155: Error (DROP missing keyword)
+DROP emp_view;
+
+-- Line 158: Correct ALTER DROP COLUMN
+ALTER TABLE employees DROP COLUMN bonus;
+
+-- Line 161: Error (ALTER missing COLUMN keyword)
+ALTER TABLE employees DROP bonus;
+
+-- Line 164: Correct UPDATE multiple columns
+UPDATE employees SET name='George', department_id=70 WHERE id=8;
+
+-- Line 167: Error (UPDATE missing commas)
+UPDATE employees SET name='Helen' department_id=80 WHERE id=9;
+
+-- Line 170: Correct nested subquery
+SELECT * FROM employees WHERE id IN (SELECT id FROM projects WHERE dept_id=10);
+
+-- Line 173: Error (subquery missing SELECT)
+SELECT * FROM employees WHERE id IN (projects WHERE dept_id=10);
+
+-- Line 176: Correct DELETE with EXISTS
+DELETE FROM employees WHERE EXISTS (SELECT 1 FROM projects WHERE dept_id=employees.department_id);
+
+-- Line 179: Error (EXISTS missing subquery)
+DELETE FROM employees WHERE EXISTS employees;
+
+-- Line 182: Correct CREATE SCHEMA
+CREATE SCHEMA company;
+
+-- Line 185: Error (SCHEMA missing name)
+CREATE SCHEMA;
+
+-- Line 188: Correct DROP SCHEMA
+DROP SCHEMA company;
+
+-- Line 191: Error (DROP SCHEMA missing keyword)
+DROP company;
+
+-- Line 194: Correct ALTER RENAME
+ALTER TABLE employees RENAME COLUMN name TO full_name;
+
+-- Line 197: Error (RENAME missing COLUMN keyword)
+ALTER TABLE employees RENAME name TO full_name;
+
+-- Line 200: Correct INSERT multiple rows
+INSERT INTO departments (id, dept_name) VALUES (4, 'Sales'), (5, 'Support');
