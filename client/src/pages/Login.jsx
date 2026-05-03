@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { Database, Eye, EyeOff } from 'lucide-react';
+import {
+  Database, Eye, EyeOff, BarChart3, Bot, Wand2, Code2, Building2,
+  Plug, Network, Globe, Lock, Zap, TrendingUp, Table2, Map, Download,
+  Layers, Tag, Activity, Webhook, FlaskConical, Languages, Target,
+  Cpu, Shield, Lightbulb, GitBranch, BookOpen, GitMerge,
+} from 'lucide-react';
 
 export default function Login() {
   const { login, register } = useAuth();
@@ -47,13 +52,89 @@ export default function Login() {
         <div className="auth-hero">
           <Database size={48} className="hero-icon" />
           <h1>DataAnalyst Pro</h1>
-          <p>Upload, clean, analyze and visualize your data with AI-powered insights</p>
-          <div className="hero-features">
-            <div className="feature-tag">📊 Interactive Charts</div>
-            <div className="feature-tag">🤖 AI Assistant</div>
-            <div className="feature-tag">🧹 Data Cleaning</div>
-            <div className="feature-tag">📈 ML Analytics</div>
-            <div className="feature-tag">💾 SQL Editor</div>
+          <p>Enterprise data analytics suite with 40+ AI-powered features</p>
+          
+          {/* Feature Grid */}
+          <div style={{ marginTop: 32, maxWidth: 900 }}>
+            {/* Data & Processing */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Data Management</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                {[
+                  { icon: BarChart3, label: 'Import & Catalog' },
+                  { icon: Wand2, label: 'Data Cleaning' },
+                  { icon: GitBranch, label: 'Version Control' },
+                  { icon: Plug, label: 'DB Connectors' },
+                  { icon: Network, label: 'Data Lineage' },
+                  { icon: Lock, label: 'Data Masking' },
+                ].map(({ icon: Icon, label }) => (
+                  <div key={label} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 12, textAlign: 'center', fontSize: 11, color: '#d1d5db', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <Icon size={16} color='#10b981' />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Analysis */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Analytics & Visualization</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                {[
+                  { icon: Code2, label: 'SQL Editor' },
+                  { icon: Languages, label: 'NL to SQL' },
+                  { icon: FlaskConical, label: 'ML Analytics' },
+                  { icon: Table2, label: 'Pivot Tables' },
+                  { icon: Map, label: 'Geo Maps' },
+                  { icon: Activity, label: 'Live Streaming' },
+                ].map(({ icon: Icon, label }) => (
+                  <div key={label} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 12, textAlign: 'center', fontSize: 11, color: '#d1d5db', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <Icon size={16} color='#3b82f6' />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* AI & Intelligence */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>AI & Intelligence</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                {[
+                  { icon: Bot, label: 'AI Assistant' },
+                  { icon: Lightbulb, label: 'Business Q&A' },
+                  { icon: Cpu, label: 'AutoML' },
+                  { icon: Target, label: 'Prescriptive' },
+                  { icon: TrendingUp, label: 'Predictions' },
+                  { icon: Layers, label: 'Knowledge Graph' },
+                ].map(({ icon: Icon, label }) => (
+                  <div key={label} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 12, textAlign: 'center', fontSize: 11, color: '#d1d5db', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <Icon size={16} color='#a78bfa' />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Enterprise */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Enterprise & Integrations</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                {[
+                  { icon: Globe, label: 'Zoho CRM' },
+                  { icon: Building2, label: 'Workspaces' },
+                  { icon: Webhook, label: 'Webhooks' },
+                  { icon: Download, label: 'PDF Export' },
+                  { icon: Shield, label: '2FA Security' },
+                  { icon: Tag, label: 'Annotations' },
+                ].map(({ icon: Icon, label }) => (
+                  <div key={label} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 12, textAlign: 'center', fontSize: 11, color: '#d1d5db', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <Icon size={16} color='#f59e0b' />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
