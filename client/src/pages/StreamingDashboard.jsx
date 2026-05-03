@@ -70,7 +70,10 @@ export default function StreamingDashboard() {
         });
       } catch {}
     };
-    es.onerror = () => { setConnected(false); };
+    es.onerror = (err) => {
+      setConnected(false);
+      // EventSource auto-reconnects — only stop if it was manually closed
+    };
     setRunning(true);
   }, [feedType, interval, disconnect]);
 
