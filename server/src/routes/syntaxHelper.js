@@ -920,7 +920,11 @@ const checkPythonLines = (lines) => {
 
     // ── 2. Missing colon on block-starting statements ────────────────────────
     if (/^\s*(def|class|if|elif|else|for|while|try|except|finally|with|async\s+def)\b/.test(raw)) {
-      if (!/:\s*(#.*)?$/.test(noComment)) {
+      // Strip parenthesised groups (removes type annotations like x: int inside parens)
+      // then check whether any colon survives — if none, the colon is truly missing.
+      // This also allows valid one-liners: `if n<=1: return 1` (colon present, not at end).
+      const stripped = noComment.replace(/\([^()]*\)/g, '()');
+      if (!stripped.includes(':')) {
         const kw = trimmed.split(/[\s(]/)[0];
         push('error', lineNum,
           `Line ${lineNum}: Missing colon at end of "${kw}" statement`,
@@ -1417,10 +1421,12 @@ const checkPythonAdvanced = (lines) => {
     errors.push({ type, line, language: 'python', message, fix });
   };
 
-  // ── Pass 1: build a simple symbol table ──────────────────────────────────
+  // ── Pass 1: build a comprehensive symbol table ───────────────────────────
   const defined = new Set(PYTHON_BUILTINS);
   const funcSigs = {}; // funcName → {line, requiredCount}
   const classNames = new Set();
+  const tupleVars = new Set(); // variables assigned a tuple literal
+  const allAssigned = new Set(); // every LHS name seen anywhere
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -1430,18 +1436,18 @@ const checkPythonAdvanced = (lines) => {
 
     // import X  /  import X as Y  /  from X import Y, Z
     const impM = noComment.match(/^import\s+(\S+?)(?:\s+as\s+(\w+))?$/);
-    if (impM) { defined.add(impM[2] || impM[1].split('.')[0]); }
+    if (impM) { defined.add(impM[2] || impM[1].split('.')[0]); allAssigned.add(impM[2] || impM[1].split('.')[0]); }
     const fromM = noComment.match(/^from\s+\S+\s+import\s+(.+)/);
     if (fromM) {
       fromM[1].split(',').forEach(nm => {
         const alias = nm.trim().split(/\s+as\s+/).pop().trim();
-        if (/^\w+$/.test(alias)) defined.add(alias);
+        if (/^\w+$/.test(alias)) { defined.add(alias); allAssigned.add(alias); }
       });
     }
     // def name(...)
     const defM = noComment.match(/^def\s+(\w+)\s*\(([^)]*)\)/);
     if (defM) {
-      defined.add(defM[1]);
+      defined.add(defM[1]); allAssigned.add(defM[1]);
       const params = defM[2].trim();
       if (params === '') {
         funcSigs[defM[1]] = { line: i + 1, requiredCount: 0 };
@@ -1456,7 +1462,7 @@ const checkPythonAdvanced = (lines) => {
       if (defM[2].trim()) {
         defM[2].split(',').forEach(p => {
           const pname = p.trim().split(/[=:*]/)[0].trim().replace(/^\*+/, '');
-          if (pname) defined.add(pname);
+          if (pname) { defined.add(pname); allAssigned.add(pname); }
         });
       }
     }
@@ -1468,23 +1474,29 @@ const checkPythonAdvanced = (lines) => {
     if (assignM) {
       assignM[1].split(',').forEach(nm => {
         const t = nm.trim();
-        if (/^\w+$/.test(t)) defined.add(t);
+        if (/^\w+$/.test(t)) { defined.add(t); allAssigned.add(t); }
       });
+      // Track tuple assignments: name = (...)
+      const tupleAssign = noComment.match(/^(\w+)\s*=\s*\(/);
+      if (tupleAssign) tupleVars.add(tupleAssign[1]);
     }
     // for var in ...  /  for var, var2 in ...
     const forM = noComment.match(/^for\s+(\w+(?:\s*,\s*\w+)*)\s+in\b/);
     if (forM) {
       forM[1].split(',').forEach(nm => {
         const t = nm.trim();
-        if (/^\w+$/.test(t)) defined.add(t);
+        if (/^\w+$/.test(t)) { defined.add(t); allAssigned.add(t); }
       });
     }
     // with X as var
     const withM = noComment.match(/^with\s+.+\bas\s+(\w+)/);
-    if (withM) defined.add(withM[1]);
+    if (withM) { defined.add(withM[1]); allAssigned.add(withM[1]); }
     // except ExcType as var
     const excM = noComment.match(/^except\s+\w+\s+as\s+(\w+)/);
-    if (excM) defined.add(excM[1]);
+    if (excM) { defined.add(excM[1]); allAssigned.add(excM[1]); }
+    // global / nonlocal name
+    const globalM = noComment.match(/^(?:global|nonlocal)\s+(.+)/);
+    if (globalM) globalM[1].split(',').forEach(n => { defined.add(n.trim()); allAssigned.add(n.trim()); });
   }
 
   // ── Pass 2: per-line detectors ────────────────────────────────────────────
@@ -1651,23 +1663,138 @@ const checkPythonAdvanced = (lines) => {
       }
     }
 
-    // ── M. "return" with no value in a non-void context ──────────────────
-    // def bar():  ...  return   ← bare return, no value
+    // ── M. Bare "return" with no value ───────────────────────────────────
     if (/^return\s*$/.test(noComment)) {
-      // Look back for the enclosing def
       let enclosingFunc = null;
-      for (let j = i - 1; j >= 0 && j >= i - 50; j--) {
-        const pl = lines[j];
-        const pm = pl.match(/^\s*def\s+(\w+)\s*\(/);
+      for (let j = i - 1; j >= 0 && j >= i - 60; j--) {
+        const pm = lines[j].match(/^\s*def\s+(\w+)\s*\(/);
         if (pm) { enclosingFunc = pm[1]; break; }
       }
-      if (enclosingFunc && !/^(setup|teardown|configure|init|cleanup|on_\w+|handle_\w+)$/.test(enclosingFunc)) {
-        // Only flag if the function name implies it should return a value
-        if (/^(get|fetch|load|read|calc|compute|build|create|make|find|search|parse|convert|format|generate)\w*/i.test(enclosingFunc)) {
-          push('warning', lineNum,
-            `Line ${lineNum}: "return" with no value in "${enclosingFunc}" — function name implies a value should be returned`,
-            'Add a return value: return result');
+      if (enclosingFunc) {
+        push('warning', lineNum,
+          `Line ${lineNum}: "return" with no value in "${enclosingFunc}" — returns None implicitly; add a value if this function should return data`,
+          'Add a return value: return result  or  return None explicitly');
+      }
+    }
+
+    // ── N. Bare assert (no condition) ─────────────────────────────────────
+    if (/^assert\s*$/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Bare "assert" with no condition — assert must be followed by an expression to test`,
+        'Add a condition: assert x > 0  or  assert value is not None, "message"');
+    }
+
+    // ── O. Unclosed { inside f-string ─────────────────────────────────────
+    // f"Hello {name"  — missing closing }
+    if (/f["']/.test(noComment)) {
+      // Find the f-string content between the outer quotes
+      const fStrM = noComment.match(/f(["'])((?:(?!\1).)*)\1?/);
+      if (fStrM) {
+        const content = fStrM[2];
+        const opens  = (content.match(/\{/g) || []).length;
+        const closes = (content.match(/\}/g) || []).length;
+        if (opens > closes && opens > 0) {
+          push('error', lineNum,
+            `Line ${lineNum}: Unclosed "{" in f-string — every "{" must have a matching "}" to close the expression`,
+            'Add the closing brace: f"Hello {name}"');
         }
+      }
+    }
+
+    // ── P. Invalid open() file mode ───────────────────────────────────────
+    const openModeM = noComment.match(/\bopen\s*\(\s*(?:["'][^"']*["']|\w+)\s*,\s*["']([^"']+)["']/);
+    if (openModeM) {
+      const VALID_MODES = new Set(['r','w','a','rb','wb','ab','r+','w+','a+','rb+','wb+','ab+','x','xb','x+','rw','br','bw','ba']);
+      const mode = openModeM[1];
+      if (!VALID_MODES.has(mode)) {
+        push('error', lineNum,
+          `Line ${lineNum}: Invalid file mode "${mode}" in open() — valid modes are: "r", "w", "a", "rb", "wb", "ab", "r+", "w+", "x"`,
+          'Use a valid mode: open("file.txt", "r") or open("file.txt", "wb")');
+      }
+    }
+
+    // ── Q. Tuple item assignment (tuples are immutable) ───────────────────
+    // t[0] = 5  where t was assigned a tuple literal
+    const subscriptAssignM = noComment.match(/^(\w+)\s*\[.+\]\s*=(?!=)/);
+    if (subscriptAssignM && tupleVars.has(subscriptAssignM[1])) {
+      push('error', lineNum,
+        `Line ${lineNum}: "${subscriptAssignM[1]}" is a tuple and is immutable — you cannot assign to tuple items`,
+        'Convert to list first: lst = list(t)  then assign lst[0] = value');
+    }
+
+    // ── R. set.add([list]) — unhashable type ─────────────────────────────
+    if (/\.\s*add\s*\(\s*\[/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: Unhashable type — cannot add a list to a set; lists are mutable and cannot be hashed`,
+        'Use a tuple instead: s.add((4, 5))');
+    }
+
+    // ── S. Wrong argument count for user functions (nested calls too) ─────
+    // Scan every func(...) call on the line, not just statement-level
+    if (Object.keys(funcSigs).length > 0) {
+      const callRe = /\b([a-zA-Z_]\w*)\s*\(([^()]*)\)/g;
+      let cm;
+      // Skip function definition lines themselves
+      if (!/^def\s/.test(noComment) && !/^class\s/.test(noComment)) {
+        while ((cm = callRe.exec(noComment)) !== null) {
+          const [, callName, callArgs] = cm;
+          if (!funcSigs[callName]) continue;
+          const { requiredCount, line: defLine } = funcSigs[callName];
+          if (requiredCount === 0) continue; // no-arg functions always fine
+          const argStr = callArgs.trim();
+          const argCount = argStr === '' ? 0 : argStr.split(',').filter(a => a.trim()).length;
+          if (argCount > 0 && argCount < requiredCount) {
+            push('error', lineNum,
+              `Line ${lineNum}: "${callName}" expects at least ${requiredCount} argument${requiredCount > 1 ? 's' : ''} but was called with ${argCount} (defined on line ${defLine})`,
+              `Pass the required arguments: ${callName}(${Array(requiredCount).fill('arg').map((a,idx)=>a+(idx+1)).join(', ')})`);
+          } else if (argCount === 0 && requiredCount > 0) {
+            push('error', lineNum,
+              `Line ${lineNum}: "${callName}" expects ${requiredCount} argument${requiredCount > 1 ? 's' : ''} but was called with none (defined on line ${defLine})`,
+              `Pass the required arguments: ${callName}(${Array(requiredCount).fill('arg').map((a,idx)=>a+(idx+1)).join(', ')})`);
+          }
+        }
+      }
+    }
+
+    // ── T. Infinite recursion — function body is only `return self(same_args)` ──
+    const infRecM = noComment.match(/^def\s+(\w+)\s*\([^)]*\)\s*:\s*return\s+(\w+)\s*\(/);
+    if (infRecM && infRecM[1] === infRecM[2]) {
+      push('error', lineNum,
+        `Line ${lineNum}: Infinite recursion — "${infRecM[1]}" calls itself with no base case; this will cause a RecursionError`,
+        `Add a base case: if n <= 0: return result  before the recursive call`);
+    }
+    // Multi-line version: single-statement body on the next line
+    if (/^def\s+(\w+)\s*\([^)]*\):$/.test(noComment)) {
+      const funcName = noComment.match(/^def\s+(\w+)/)[1];
+      const nextTrimmed = (lines[i + 1] || '').trim();
+      const nextNC = stripPyComment(lines[i + 1] || '').trim();
+      if (nextTrimmed && /^return\s+/.test(nextNC)) {
+        const recM = nextNC.match(/^return\s+(\w+)\s*\(/);
+        if (recM && recM[1] === funcName) {
+          push('error', i + 2,
+            `Line ${i + 2}: Infinite recursion — "${funcName}" calls itself with no base case; this will cause a RecursionError`,
+            `Add a base case before the recursive call: if n <= 0: return result`);
+        }
+      }
+    }
+
+    // ── U. Undefined variable used in print/return/assignment RHS ─────────
+    // Only flag names that: length>=5, all-lowercase with underscore, not in defined set
+    const UNDEF_CONTEXTS = [
+      /^print\s*\(\s*([a-z][a-z_]{4,})\s*\)$/,       // print(total_value)
+      /^return\s+([a-z][a-z_]{4,})\s*$/,              // return total_value
+      /^(?:result|value|out|output|data)\s*=\s*([a-z][a-z_]{4,})\s*$/, // x = total_value
+    ];
+    for (const ctxRe of UNDEF_CONTEXTS) {
+      const um = noComment.match(ctxRe);
+      if (um) {
+        const name = um[1];
+        if (!defined.has(name) && !allAssigned.has(name)) {
+          push('error', lineNum,
+            `Line ${lineNum}: "${name}" is used but was never defined — this will cause a NameError at runtime`,
+            `Define "${name}" before this line: ${name} = <value>`);
+        }
+        break;
       }
     }
   }
