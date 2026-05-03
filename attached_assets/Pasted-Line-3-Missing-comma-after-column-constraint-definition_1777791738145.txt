@@ -1,0 +1,96 @@
+Line ~3: Missing comma after column/constraint definition in CREATE TABLE — each entry must end with a comma (except the last before ")")
+Fix: Add a comma at the end of the column definition
+Line 3
+Line 10: Unclosed parenthesis — 1 opening "(" without a matching ")"
+Fix: Add the missing closing parenthesis
+Line 10
+Line 19: "FORM" is not a SQL keyword — did you mean "FROM"?
+Fix: Replace FORM with FROM
+Line 19
+Line 23: UPDATE SET clause looks malformed — multiple assignments need commas, and filter needs WHERE keyword
+Fix: Use: SET col1=val1, col2=val2 WHERE condition
+Line 23
+Line 29: JOIN appears to be missing ON keyword — "JOIN table ON a.col = b.col"
+Fix: Add ON: JOIN tablename ON a.key = b.key
+Line 29
+Line 33: Possible keyword typo — "MONY" did you mean "MONEY"?
+Fix: Replace "mony" with "money"
+Line 33
+Line 35: Possible keyword typo — "DRIP" did you mean "DROP"?
+Fix: Replace "drip" with "drop"
+Line 35
+Line 37: CREATE INDEX missing ON keyword — "CREATE INDEX name ON table(col)"
+Fix: Add ON: CREATE INDEX idx_name ON tablename(column)
+Line 37
+Line 39: Standalone BY — missing GROUP, ORDER, or PARTITION before BY
+Fix: Add GROUP before BY: GROUP BY column_name
+Line 39
+Line ~40: HAVING clause used without GROUP BY — HAVING filters groups and requires GROUP BY
+Fix: Add GROUP BY before HAVING, or replace HAVING with WHERE
+Line 40
+Line 43: CREATE VIEW missing AS keyword — "CREATE VIEW name AS SELECT ..."
+Fix: Add AS: CREATE VIEW viewname AS SELECT ...
+Line 43
+Line ~44: INSERT missing VALUES keyword — "INSERT INTO t (cols) VALUES (vals)"
+Fix: Add VALUES before the data parenthesis
+Line 44
+Line 45: INSERT missing VALUES keyword — "INSERT INTO t (cols) VALUES (vals)"
+Fix: Add VALUES before the data parenthesis
+Line 45
+Line 50: Subquery in WHERE clause missing comparison operator — use IN, EXISTS, =, etc.
+Fix: Add IN before subquery: WHERE col IN (SELECT ...)
+Line 50
+Line 55: Possible keyword typo — "REFERENCE" did you mean "REFERENCES"?
+Fix: Replace "reference" with "references"
+Line 55
+Line 55: "REFERENCE" should be "REFERENCES" (with S) — foreign key constraint keyword
+Fix: Use REFERENCES: col INT REFERENCES table(col)
+Line 55
+Line 59: Possible non-standard date format '01-2022-01' — SQL standard format is 'YYYY-MM-DD'
+Fix: Use ISO format: '2022-01-01'
+Line 59
+Line 63: JOIN appears to be missing ON keyword — "JOIN table ON a.col = b.col"
+Fix: Add ON: JOIN tablename ON a.key = b.key
+Line 63
+Line ~64: UNION column count mismatch — each SELECT must return the same number of columns (got: 2 vs 1)
+Fix: Make all SELECT lists in the UNION return the same number of columns
+Line 64
+Line 69: CHECK constraint requires parentheses — CHECK (amount > 0), not CHECK amount > 0
+Fix: Add parentheses: CHECK (condition)
+Line 69
+Line 74: LIKE pattern must be a quoted string — LIKE 'A%', not LIKE A%
+Fix: Wrap the pattern in single quotes: LIKE 'A%'
+Line 74
+Line 76: BETWEEN requires AND — "BETWEEN val1 AND val2"
+Fix: Add AND: BETWEEN 3000 AND 6000
+Line 76
+Line 79: Trigger timing clause missing ON keyword — "AFTER DELETE ON table_name FOR EACH ROW"
+Fix: Add ON before the table name: AFTER DELETE ON tablename
+Line 79
+Line 85: Possible keyword typo — "VIE" did you mean "VIEW"?
+Fix: Replace "vie" with "view"
+Line 85
+Line 87: DISTINCT must immediately follow SELECT — "SELECT DISTINCT col", not "SELECT col DISTINCT"
+Fix: Move DISTINCT right after SELECT
+Line 87
+Line 89: "LIMIT TO" is not valid SQL — use "LIMIT n"
+Fix: Remove TO: LIMIT 10
+Line 89
+Line 94: BOOLEAN DEFAULT must be TRUE or FALSE, not a string like 'yes'
+Fix: Use DEFAULT TRUE or DEFAULT FALSE
+Line 94
+Line 97: NOT NULL cannot appear inside a VALUES clause — it's a column constraint, not a value
+Fix: Use NULL to insert a null value, or omit the column
+Line 97
+Line 99: Incomplete IS clause — must be followed by NULL, NOT NULL, TRUE, or FALSE
+Fix: Use: WHERE col IS NULL or WHERE col IS NOT NULL
+Line 99
+Line 101: CREATE FUNCTION missing RETURNS clause — "FUNCTION name(params) RETURNS returntype BEGIN"
+Fix: Add RETURNS before the return type: FUNCTION name(params) RETURNS DECIMAL(10,2)
+Line 101
+Line ~105: CASE expression missing END — 1 CASE but only 0 unmatched END keyword
+Fix: Add END after each CASE block: CASE WHEN ... THEN ... ELSE ... END
+Line 105
+Line 115: "AUTOIN" is not a valid keyword — did you mean AUTO_INCREMENT?
+Fix: Use AUTO_INCREMENT: col_id INT AUTO_INCREMENT PRIMARY KEY
+Line 115

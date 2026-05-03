@@ -1,0 +1,75 @@
+24 Issues Detected
+SQL • 24 errors, 1 suggestions
+Issues & Fixes
+Line 10: Unclosed parenthesis — 1 opening "(" without a matching ")"
+Fix: Add the missing closing parenthesis
+Line 10
+Line 23: UPDATE SET clause looks malformed — multiple assignments need commas, and filter needs WHERE keyword
+Fix: Use: SET col1=val1, col2=val2 WHERE condition
+Line 23
+Line 29: JOIN appears to be missing ON keyword — "JOIN table ON a.col = b.col"
+Fix: Add ON: JOIN tablename ON a.key = b.key
+Line 29
+Line 33: Possible keyword typo — "MONY" did you mean "MONEY"?
+Fix: Replace "mony" with "money"
+Line 33
+Line 35: Possible keyword typo — "DRIP" did you mean "DROP"?
+Fix: Replace "drip" with "drop"
+Line 35
+Line 37: CREATE INDEX missing ON keyword — "CREATE INDEX name ON table(col)"
+Fix: Add ON: CREATE INDEX idx_name ON tablename(column)
+Line 37
+Line 39: Standalone BY — missing GROUP, ORDER, or PARTITION before BY
+Fix: Add GROUP before BY: GROUP BY column_name
+Line 39
+Line ~40: HAVING clause used without GROUP BY — HAVING filters groups and requires GROUP BY
+Fix: Add GROUP BY before HAVING, or replace HAVING with WHERE
+Line 40
+Line ~44: INSERT missing VALUES keyword — "INSERT INTO t (cols) VALUES (vals)"
+Fix: Add VALUES before the data parenthesis
+Line 44
+Line 45: INSERT missing VALUES keyword — "INSERT INTO t (cols) VALUES (vals)"
+Fix: Add VALUES before the data parenthesis
+Line 45
+Line 50: Subquery in WHERE clause missing comparison operator — use IN, EXISTS, =, etc.
+Fix: Add IN before subquery: WHERE col IN (SELECT ...)
+Line 50
+Line 59: Possible non-standard date format '01-2022-01' — SQL standard format is 'YYYY-MM-DD'
+Fix: Use ISO format: '2022-01-01'
+Line 59
+Line 63: JOIN appears to be missing ON keyword — "JOIN table ON a.col = b.col"
+Fix: Add ON: JOIN tablename ON a.key = b.key
+Line 63
+Line ~64: UNION column count mismatch — each SELECT must return the same number of columns (got: 2 vs 1)
+Fix: Make all SELECT lists in the UNION return the same number of columns
+Line 64
+Line 69: CHECK constraint requires parentheses — CHECK (amount > 0), not CHECK amount > 0
+Fix: Add parentheses: CHECK (condition)
+Line 69
+Line 74: LIKE pattern must be a quoted string — LIKE 'A%', not LIKE A%
+Fix: Wrap the pattern in single quotes: LIKE 'A%'
+Line 74
+Line 76: BETWEEN requires AND — "BETWEEN val1 AND val2"
+Fix: Add AND: BETWEEN 3000 AND 6000
+Line 76
+Line 79: Trigger timing clause missing ON keyword — "AFTER DELETE ON table_name FOR EACH ROW"
+Fix: Add ON before the table name: AFTER DELETE ON tablename
+Line 79
+Line 85: Possible keyword typo — "VIE" did you mean "VIEW"?
+Fix: Replace "vie" with "view"
+Line 85
+Line 87: DISTINCT must immediately follow SELECT — "SELECT DISTINCT col", not "SELECT col DISTINCT"
+Fix: Move DISTINCT right after SELECT
+Line 87
+Line 97: NOT NULL cannot appear inside a VALUES clause — it's a column constraint, not a value
+Fix: Use NULL to insert a null value, or omit the column
+Line 97
+Line 99: Incomplete IS clause — must be followed by NULL, NOT NULL, TRUE, or FALSE
+Fix: Use: WHERE col IS NULL or WHERE col IS NOT NULL
+Line 99
+Line 101: CREATE FUNCTION missing RETURNS clause — "FUNCTION name(params) RETURNS returntype BEGIN"
+Fix: Add RETURNS before the return type: FUNCTION name(params) RETURNS DECIMAL(10,2)
+Line 101
+Line ~105: CASE expression missing END — 1 CASE but only 0 unmatched END keyword
+Fix: Add END after each CASE block: CASE WHEN ... THEN ... ELSE ... END
+Line 105

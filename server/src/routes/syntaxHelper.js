@@ -635,20 +635,35 @@ const checkAdvisoryPatterns = (code, lines) => {
 // ── SQL auto-fixer ────────────────────────────────────────────────────────────
 const SQL_AUTO_FIXES = [
   // Keyword typos (safe single-word replacements)
-  { re: /\bFORM\b(?!\w)/g,           fix: 'FROM' },
-  { re: /\bAUTOIN\b/ig,              fix: 'AUTO_INCREMENT' },
-  { re: /\bREFERENCE\b(?=\s+\w)/ig, fix: 'REFERENCES' },
-  { re: /\bHAVING\b(?!\s)/ig,        fix: 'HAVING ' },
-  { re: /\bLIMIT\s+TO\s+/ig,         fix: 'LIMIT ' },
+  { re: /\bFORM\b(?!\w)/g,                                            fix: 'FROM' },
+  { re: /\bAUTOIN\b/ig,                                               fix: 'AUTO_INCREMENT' },
+  { re: /\bREFERENCE\b(?=\s+\w)/ig,                                   fix: 'REFERENCES' },
+  { re: /\bHAVING\b(?!\s)/ig,                                         fix: 'HAVING ' },
+  { re: /\bLIMIT\s+TO\s+/ig,                                          fix: 'LIMIT ' },
+  { re: /\bMONY\b/ig,                                                  fix: 'MONEY' },
+  { re: /\bDRIP\b(?=\s+(?:TABLE|INDEX|VIEW|DATABASE|SCHEMA|FUNCTION|PROCEDURE|TRIGGER)\b)/ig, fix: 'DROP' },
+  { re: /\b((?:DROP|CREATE|ALTER)\s+)VIE\b(?=\s)/ig,                 fix: '$1VIEW' },
   // Boolean literals as strings → bare keywords
-  { re: /\bBOOLEAN\s+DEFAULT\s+'true'/ig,   fix: "BOOLEAN DEFAULT TRUE" },
-  { re: /\bBOOLEAN\s+DEFAULT\s+'false'/ig,  fix: "BOOLEAN DEFAULT FALSE" },
-  { re: /\bBOOLEAN\s+DEFAULT\s+'yes'/ig,    fix: "BOOLEAN DEFAULT TRUE" },
-  { re: /\bBOOLEAN\s+DEFAULT\s+'no'/ig,     fix: "BOOLEAN DEFAULT FALSE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'true'/ig,                             fix: "BOOLEAN DEFAULT TRUE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'false'/ig,                            fix: "BOOLEAN DEFAULT FALSE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'yes'/ig,                              fix: "BOOLEAN DEFAULT TRUE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'no'/ig,                               fix: "BOOLEAN DEFAULT FALSE" },
   // CREATE VIEW missing AS
   { re: /\b(CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+\w+)\s+(SELECT\b)/ig, fix: '$1 AS $2' },
-  // DISTINCT after columns → move before
-  // (not safe to auto-fix without parsing, skip)
+  // CREATE INDEX missing ON: CREATE INDEX idx table(col) → CREATE INDEX idx ON table(col)
+  { re: /\b(CREATE\s+(?:UNIQUE\s+)?INDEX\s+\w+)\s+(?!ON\b)(\w+\s*\()/ig, fix: '$1 ON $2' },
+  // Trigger timing missing ON: AFTER DELETE tbl FOR → AFTER DELETE ON tbl FOR
+  { re: /\b((?:AFTER|BEFORE)\s+(?:INSERT|UPDATE|DELETE))\s+(?!ON\b)(\w+)(\s+FOR\b)/ig, fix: '$1 ON $2$3' },
+  // Date format: 'MM-YYYY-DD' → 'YYYY-MM-DD' (middle group is 4-digit year)
+  { re: /'(\d{2})-(\d{4})-(\d{2})'/g,                                fix: "'$2-$1-$3'" },
+  // LIKE with unquoted pattern: LIKE A% → LIKE 'A%'
+  { re: /\bLIKE\s+([A-Za-z][A-Za-z0-9_%]*)(?!\s*['"])/ig,           fix: "LIKE '$1'" },
+  // BETWEEN missing AND: BETWEEN 3000 6000 → BETWEEN 3000 AND 6000
+  { re: /\bBETWEEN\s+(\S+)\s+(?!AND\b)(\d[\d.]*)\b/ig,              fix: 'BETWEEN $1 AND $2' },
+  // INSERT missing VALUES: INSERT INTO t (cols) (vals) → INSERT INTO t (cols) VALUES (vals)
+  { re: /\b(INSERT\s+INTO\s+\w+\s*\([^)]+\))\s*(\()/ig,             fix: '$1 VALUES $2' },
+  // SELECT col[, col2] DISTINCT → SELECT DISTINCT col[, col2]
+  { re: /\bSELECT\s+(.+?)\s+DISTINCT\b/ig,                           fix: 'SELECT DISTINCT $1' },
 ];
 
 const fixSQLCode = (code) => {
@@ -657,9 +672,19 @@ const fixSQLCode = (code) => {
     fixed = fixed.replace(re, fix);
   }
 
+  // Fix line-by-line checks
+  const lines = fixed.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    // CHECK missing parens: CHECK expr → CHECK (expr)
+    line = line.replace(/\bCHECK\s+(?!\()([^()\n;,]+?)\s*([,;]?\s*)$/i, (m, expr, trail) => {
+      return `CHECK (${expr.trim()})${trail}`;
+    });
+    lines[i] = line;
+  }
+
   // Fix line-by-line: missing comma after column def in CREATE TABLE
   // (detect two consecutive non-comma-terminated col defs and add comma to first)
-  const lines = fixed.split('\n');
   const dataTypeKw = /\b(INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|REAL|MONEY|CHAR|VARCHAR|TEXT|DATE|TIME|TIMESTAMP|DATETIME|BOOLEAN|BOOL|SERIAL|UUID|JSON|JSONB|BYTEA|NVARCHAR|NCHAR)\b/i;
   let inCreate = false;
   for (let i = 0; i < lines.length - 1; i++) {
