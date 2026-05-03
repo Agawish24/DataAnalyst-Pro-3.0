@@ -632,3 +632,4 @@ python3 python-service/app.py     # ML service — port 8000
 *React · Node.js · Python · PostgreSQL · scikit-learn · Prophet · Leaflet · SSE*
 
 </div>
+# DataAnalyst-Pro-3.0
