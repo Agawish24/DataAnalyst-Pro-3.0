@@ -188,7 +188,7 @@ router.get('/', authenticate, async (req, res) => {
 
 router.post('/:datasetId', authenticate, async (req, res) => {
   try {
-    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1 AND uploaded_by=$2', [req.params.datasetId, req.user.id]);
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.datasetId]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Dataset not found' });
 
     const dataset = ds.rows[0];

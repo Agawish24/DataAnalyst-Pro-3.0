@@ -61,7 +61,7 @@ router.delete('/keys/:id', authenticate, async (req, res) => {
 // ---- Public API endpoints (API key auth) ----
 router.get('/v1/datasets', apiKeyAuth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, source, row_count, column_count, created_at FROM datasets WHERE uploaded_by=$1 ORDER BY created_at DESC', [req.user.user_id]);
+    const result = await pool.query('SELECT id, name, source, row_count, column_count, created_at FROM datasets ORDER BY created_at DESC');
     res.json({ data: result.rows, count: result.rows.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
