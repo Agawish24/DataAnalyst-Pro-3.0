@@ -500,10 +500,17 @@ def root_cause():
 
 @app.route('/automl', methods=['POST'])
 def automl():
+    """
+    Enterprise AutoML: trains 8 models (Random Forest, Gradient Boosting,
+    XGBoost, Neural Network/MLP, Logistic/Ridge/Lasso/SVM), selects the winner
+    by cross-validated score, and returns per-model metrics + feature importance.
+    """
     try:
-        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
         from sklearn.linear_model import LogisticRegression, Ridge, Lasso
         from sklearn.svm import SVC, SVR
+        from sklearn.neural_network import MLPClassifier, MLPRegressor
         from sklearn.model_selection import cross_val_score
         from sklearn.preprocessing import LabelEncoder, StandardScaler
 
@@ -520,92 +527,130 @@ def automl():
         if not feature_cols:
             feature_cols = [c for c in df.columns if c != target_col]
 
-        df_clean = df[feature_cols + [target_col]].dropna()
+        # Only keep numeric-ish feature cols (encode objects)
+        valid_feature_cols = [c for c in feature_cols if c in df.columns]
+        df_clean = df[valid_feature_cols + [target_col]].dropna()
         if len(df_clean) < 20:
             return jsonify({'error': 'Need at least 20 rows for AutoML'}), 400
 
-        X = df_clean[feature_cols].copy()
+        X = df_clean[valid_feature_cols].copy()
         y = df_clean[target_col].copy()
 
         # Encode categoricals in X
-        le_map = {}
+        encoders = {}
         for col in X.columns:
-            if X[col].dtype == object:
+            if X[col].dtype == object or not pd.api.types.is_numeric_dtype(X[col]):
                 le = LabelEncoder()
                 X[col] = le.fit_transform(X[col].astype(str))
-                le_map[col] = list(le.classes_)
+                encoders[col] = list(le.classes_)
+
+        X = X.apply(pd.to_numeric, errors='coerce').fillna(0)
 
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
+
+        # ── Try XGBoost ────────────────────────────────────────────────────
+        xgb_cls, xgb_reg = None, None
+        try:
+            import xgboost as xgb
+            xgb_cls = xgb.XGBClassifier(n_estimators=50, max_depth=4, random_state=42,
+                                         use_label_encoder=False, eval_metric='logloss', verbosity=0)
+            xgb_reg = xgb.XGBRegressor(n_estimators=50, max_depth=4, random_state=42, verbosity=0)
+        except ImportError:
+            pass
 
         if task_type == 'classification':
             y_enc = LabelEncoder()
             y = y_enc.fit_transform(y.astype(str))
             models = {
-                'Random Forest': RandomForestClassifier(n_estimators=50, random_state=42),
-                'Gradient Boosting': GradientBoostingClassifier(n_estimators=50, random_state=42),
-                'Logistic Regression': LogisticRegression(max_iter=500, random_state=42),
-                'SVM': SVC(kernel='rbf', random_state=42),
+                'Random Forest':       (RandomForestClassifier(n_estimators=60, random_state=42), X),
+                'Gradient Boosting':   (GradientBoostingClassifier(n_estimators=60, random_state=42), X),
+                'Logistic Regression': (LogisticRegression(max_iter=500, random_state=42), X_scaled),
+                'Neural Network':      (MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=200, random_state=42), X_scaled),
+                'SVM':                 (SVC(kernel='rbf', random_state=42), X_scaled),
             }
+            if xgb_cls:
+                models['XGBoost'] = (xgb_cls, X)
             scoring = 'accuracy'
         else:
-            y = pd.to_numeric(y, errors='coerce').fillna(y.mean())
+            y = pd.to_numeric(y, errors='coerce').fillna(float(y.mode()[0]) if not pd.to_numeric(y, errors='coerce').notna().all() else 0)
             models = {
-                'Random Forest': RandomForestRegressor(n_estimators=50, random_state=42),
-                'Gradient Boosting': GradientBoostingRegressor(n_estimators=50, random_state=42),
-                'Ridge Regression': Ridge(),
-                'Lasso Regression': Lasso(),
+                'Random Forest':     (RandomForestRegressor(n_estimators=60, random_state=42), X),
+                'Gradient Boosting': (GradientBoostingRegressor(n_estimators=60, random_state=42), X),
+                'Ridge Regression':  (Ridge(), X_scaled),
+                'Lasso Regression':  (Lasso(), X_scaled),
+                'Neural Network':    (MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=200, random_state=42), X_scaled),
             }
+            if xgb_reg:
+                models['XGBoost'] = (xgb_reg, X)
             scoring = 'r2'
 
         all_scores = {}
-        best_model = None
+        model_details = {}
+        best_model_name = None
         best_score = -999
+        cv_folds = max(2, min(5, len(df_clean) // 10))
 
-        for name, model in models.items():
+        for name, (model, use_X) in models.items():
             try:
-                use_X = X_scaled if name in ['Logistic Regression', 'SVM', 'Ridge Regression', 'Lasso Regression'] else X
-                cv = min(5, len(df_clean) // 10)
-                if cv < 2:
-                    cv = 2
-                scores = cross_val_score(model, use_X, y, cv=cv, scoring=scoring)
-                mean_score = float(np.mean(scores))
+                cv_scores = cross_val_score(model, use_X, y, cv=cv_folds, scoring=scoring, n_jobs=-1)
+                mean_score = float(np.mean(cv_scores))
+                std_score = float(np.std(cv_scores))
                 all_scores[name] = round(mean_score, 4)
+                model_details[name] = {
+                    'mean': round(mean_score, 4),
+                    'std': round(std_score, 4),
+                    'cv_scores': [round(float(s), 4) for s in cv_scores],
+                    'cv_folds': cv_folds,
+                }
                 if mean_score > best_score:
                     best_score = mean_score
-                    best_model = name
-            except Exception as e:
+                    best_model_name = name
+            except Exception as model_err:
                 all_scores[name] = None
+                model_details[name] = {'error': str(model_err)}
 
-        # Fit best model for feature importance
+        # ── Fit winner for feature importance ─────────────────────────────
         feature_importance = {}
-        best_model_obj = models.get(best_model)
-        if best_model_obj:
+        if best_model_name:
+            best_model_obj, use_X_fi = models[best_model_name]
             try:
-                use_X = X_scaled if best_model in ['Logistic Regression', 'SVM', 'Ridge Regression', 'Lasso Regression'] else X
-                best_model_obj.fit(use_X, y)
+                best_model_obj.fit(use_X_fi, y)
                 if hasattr(best_model_obj, 'feature_importances_'):
                     fi = best_model_obj.feature_importances_
-                    feature_importance = {col: round(float(imp), 4) for col, imp in zip(feature_cols, fi)}
+                    total = fi.sum() or 1
+                    feature_importance = {col: round(float(imp / total), 4) for col, imp in zip(valid_feature_cols, fi)}
                 elif hasattr(best_model_obj, 'coef_'):
                     coef = np.abs(best_model_obj.coef_).flatten() if best_model_obj.coef_.ndim > 1 else np.abs(best_model_obj.coef_)
-                    feature_importance = {col: round(float(imp), 4) for col, imp in zip(feature_cols, coef)}
+                    total = coef.sum() or 1
+                    feature_importance = {col: round(float(imp / total), 4) for col, imp in zip(valid_feature_cols, coef)}
             except Exception:
                 pass
 
+        # ── Runner-up gap ──────────────────────────────────────────────────
+        ranked = sorted([(n, s) for n, s in all_scores.items() if s is not None], key=lambda x: x[1], reverse=True)
+        winner_gap = None
+        if len(ranked) >= 2:
+            winner_gap = round(float(ranked[0][1] - ranked[1][1]), 4)
+
         return jsonify({
             'task_type': task_type,
-            'best_model': best_model,
+            'best_model': best_model_name,
             'best_score': round(best_score, 4),
             'metric': scoring,
             'all_scores': all_scores,
+            'model_details': model_details,
             'feature_importance': feature_importance,
             'sample_size': len(df_clean),
-            'features_used': feature_cols,
-            'recommendation': f'Best model: {best_model} with {scoring}={round(best_score,3)}. {"Accuracy above 0.8 is strong." if scoring=="accuracy" else "R² above 0.7 is strong."}'
+            'features_used': valid_feature_cols,
+            'cv_folds': cv_folds,
+            'winner_gap': winner_gap,
+            'models_compared': len(models),
+            'recommendation': f'Best: {best_model_name} ({scoring}={round(best_score, 3)}). {"Accuracy ≥0.8 is strong." if scoring=="accuracy" else "R² ≥0.7 is strong."}'
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
 @app.route('/anomaly-stream', methods=['POST'])
