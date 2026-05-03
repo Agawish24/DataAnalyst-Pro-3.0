@@ -8,9 +8,12 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 
 const getBigQueryToken = async (keyFileContent) => {
+  if (!keyFileContent) throw new Error('BigQuery service account key is required — paste the full JSON key file content into the "keyFileContent" field');
   let creds;
   try { creds = typeof keyFileContent === 'string' ? JSON.parse(keyFileContent) : keyFileContent; }
-  catch { throw new Error('Invalid BigQuery key file JSON'); }
+  catch { throw new Error('Invalid BigQuery key file — the content is not valid JSON; paste the full service account JSON key'); }
+  if (!creds || !creds.client_email) throw new Error('BigQuery key file is missing "client_email" — ensure you pasted a complete service account JSON key');
+  if (!creds.private_key) throw new Error('BigQuery key file is missing "private_key" — ensure you pasted a complete service account JSON key');
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: creds.client_email,
@@ -234,9 +237,13 @@ router.get('/:id/schema', authenticate, async (req, res) => {
       }))
     });
   } catch (err) {
-    // Connection errors (ENOTFOUND, ECONNREFUSED, timeout) return empty schema rather than 500
-    const connErr = err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT' || err.message?.includes('timeout');
-    if (connErr) return res.json({ connector: 'Unknown', tables: [], error: err.message });
+    // Connection errors (ENOTFOUND, ECONNREFUSED, timeout) and credential errors return empty schema
+    const connErr = err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT'
+      || err.message?.includes('timeout') || err.message?.includes('ENOTFOUND') || err.message?.includes('ECONNREFUSED');
+    const credErr = err.message?.includes('client_email') || err.message?.includes('private_key')
+      || err.message?.includes('service account') || err.message?.includes('key file')
+      || err instanceof TypeError;
+    if (connErr || credErr) return res.json({ connector: 'Unknown', tables: [], error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

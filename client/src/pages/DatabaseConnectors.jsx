@@ -42,8 +42,10 @@ export default function DatabaseConnectors() {
   };
 
   const loadSchema = async (id) => {
-    try { const r = await api.get(`/connectors/${id}/schema`); setSchema(r.data); }
-    catch (e) { toast.error(e.response?.data?.error || 'Could not fetch schema'); }
+    try {
+      const r = await api.get(`/connectors/${id}/schema`);
+      setSchema(r.data);
+    } catch { setSchema({ tables: [], error: 'Could not fetch schema' }); }
   };
 
   const runQuery = async () => {
