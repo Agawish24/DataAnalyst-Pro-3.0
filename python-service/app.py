@@ -761,5 +761,178 @@ def pivot_compute():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/anomaly/multi-method', methods=['POST'])
+def anomaly_multi_method():
+    """
+    Enterprise multi-method anomaly detection.
+    Runs Z-score, IQR, Isolation Forest, and DBSCAN simultaneously.
+    Returns per-row confidence scores (fraction of methods agreeing),
+    chart-ready series for each numeric column, and column-level summaries.
+    """
+    try:
+        body = request.get_json()
+        rows = body.get('rows', [])
+        columns = body.get('columns', [])  # specific columns to analyze, or all numeric
+        target_col = body.get('target_col')  # primary column for time-series chart
+        zscore_threshold = float(body.get('zscore_threshold', 3.0))
+        contamination = float(body.get('contamination', 0.05))  # expected anomaly fraction
+
+        if not rows:
+            return jsonify({'error': 'rows array required'}), 400
+
+        df = df_from_rows(rows)
+
+        if columns:
+            numeric_cols = [c for c in columns if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+        else:
+            numeric_cols = list(df.select_dtypes(include=[np.number]).columns)
+
+        if not numeric_cols:
+            return jsonify({'error': 'No numeric columns found for anomaly detection'}), 400
+
+        # Cap for performance
+        df = df.head(5000).copy()
+        n = len(df)
+
+        # ── Method 1: Z-score ─────────────────────────────────────────────────
+        zscore_flags = np.zeros(n, dtype=bool)
+        zscore_values = {}
+        col_stats = {}
+
+        for col in numeric_cols:
+            vals = pd.to_numeric(df[col], errors='coerce').fillna(df[col].median() if not df[col].isna().all() else 0)
+            mean = vals.mean()
+            std = vals.std()
+            if std < 1e-9:
+                zs = np.zeros(n)
+            else:
+                zs = np.abs((vals - mean) / std)
+            col_flags = zs > zscore_threshold
+            zscore_flags |= col_flags
+            zscore_values[col] = zs.round(4).tolist()
+            q1, q3 = vals.quantile(0.25), vals.quantile(0.75)
+            col_stats[col] = {
+                'mean': round(float(mean), 4),
+                'std': round(float(std), 4),
+                'min': round(float(vals.min()), 4),
+                'max': round(float(vals.max()), 4),
+                'q1': round(float(q1), 4),
+                'q3': round(float(q3), 4),
+                'iqr': round(float(q3 - q1), 4),
+                'zscore_threshold': zscore_threshold,
+            }
+
+        # ── Method 2: IQR ─────────────────────────────────────────────────────
+        iqr_flags = np.zeros(n, dtype=bool)
+        for col in numeric_cols:
+            vals = pd.to_numeric(df[col], errors='coerce').fillna(col_stats[col]['mean'])
+            q1, q3, iqr = col_stats[col]['q1'], col_stats[col]['q3'], col_stats[col]['iqr']
+            if iqr < 1e-9:
+                continue
+            col_flags = (vals < q1 - 1.5 * iqr) | (vals > q3 + 1.5 * iqr)
+            iqr_flags |= col_flags
+
+        # ── Method 3: Isolation Forest ────────────────────────────────────────
+        iso_flags = np.zeros(n, dtype=bool)
+        iso_scores = np.zeros(n)
+        try:
+            X = df[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+            scaler = StandardScaler()
+            X_s = scaler.fit_transform(X)
+            iso = IsolationForest(contamination=contamination, random_state=42, n_jobs=-1)
+            iso_preds = iso.fit_predict(X_s)
+            iso_scores = iso.decision_function(X_s)
+            iso_flags = iso_preds == -1
+        except Exception:
+            pass
+
+        # ── Method 4: DBSCAN ─────────────────────────────────────────────────
+        dbscan_flags = np.zeros(n, dtype=bool)
+        try:
+            X = df[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+            scaler2 = StandardScaler()
+            X_s2 = scaler2.fit_transform(X)
+            db = DBSCAN(eps=0.8, min_samples=max(3, int(n * 0.01)))
+            db_labels = db.fit_predict(X_s2)
+            dbscan_flags = db_labels == -1
+        except Exception:
+            pass
+
+        # ── Aggregate: confidence = fraction of methods agreeing ──────────────
+        methods_matrix = np.stack([zscore_flags, iqr_flags, iso_flags, dbscan_flags], axis=1)
+        confidence = methods_matrix.mean(axis=1)  # 0.0 – 1.0
+        is_anomaly = confidence >= 0.5  # majority vote
+
+        # ── Build anomaly records ─────────────────────────────────────────────
+        anomaly_records = []
+        for i in np.where(is_anomaly)[0]:
+            row_dict = {k: (v.item() if hasattr(v, 'item') else v) for k, v in df.iloc[i].items()}
+            methods_hit = []
+            if zscore_flags[i]: methods_hit.append('zscore')
+            if iqr_flags[i]: methods_hit.append('iqr')
+            if iso_flags[i]: methods_hit.append('isolation_forest')
+            if dbscan_flags[i]: methods_hit.append('dbscan')
+
+            # Which columns triggered z-score
+            affected_cols = [c for c in numeric_cols if zscore_values[c][i] > zscore_threshold]
+
+            anomaly_records.append({
+                'row_index': int(i),
+                'confidence': round(float(confidence[i]), 4),
+                'methods_detected': methods_hit,
+                'columns_affected': affected_cols,
+                'isolation_score': round(float(iso_scores[i]), 4),
+                'zscore_by_col': {c: round(float(zscore_values[c][i]), 3) for c in numeric_cols[:5]},
+                'row': row_dict,
+            })
+
+        # Sort by confidence desc
+        anomaly_records.sort(key=lambda x: x['confidence'], reverse=True)
+
+        # ── Chart series for primary (or first) column ────────────────────────
+        chart_col = target_col if target_col and target_col in numeric_cols else numeric_cols[0]
+        vals = pd.to_numeric(df[chart_col], errors='coerce').fillna(0)
+        series = []
+        for i, v in enumerate(vals.values):
+            series.append({
+                'index': i,
+                'value': round(float(v), 4),
+                'is_anomaly': bool(is_anomaly[i]),
+                'confidence': round(float(confidence[i]), 4),
+                'zscore': round(float(zscore_values[chart_col][i]), 3),
+            })
+
+        # ── Column-level anomaly breakdown ────────────────────────────────────
+        col_anomaly_counts = {}
+        for col in numeric_cols:
+            col_anomaly_counts[col] = int(sum(1 for i in range(n) if zscore_values[col][i] > zscore_threshold))
+
+        return jsonify({
+            'methods': ['zscore', 'iqr', 'isolation_forest', 'dbscan'],
+            'summary': {
+                'total_rows': n,
+                'anomalies_found': int(is_anomaly.sum()),
+                'anomaly_rate': round(float(is_anomaly.mean() * 100), 2),
+                'high_confidence': int((confidence >= 0.75).sum()),
+                'medium_confidence': int(((confidence >= 0.5) & (confidence < 0.75)).sum()),
+                'methods_agreement': {
+                    'zscore_flagged': int(zscore_flags.sum()),
+                    'iqr_flagged': int(iqr_flags.sum()),
+                    'isolation_forest_flagged': int(iso_flags.sum()),
+                    'dbscan_flagged': int(dbscan_flags.sum()),
+                },
+                'column_anomaly_counts': col_anomaly_counts,
+                'chart_column': chart_col,
+            },
+            'anomalies': anomaly_records[:200],
+            'series': series,
+            'col_stats': col_stats,
+            'numeric_cols': numeric_cols,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)
