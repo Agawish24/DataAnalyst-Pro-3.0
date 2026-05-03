@@ -1454,12 +1454,13 @@ const checkRLines = (lines) => {
       }
     }
 
-    // ── 20. Unclosed paren/bracket on simple R assignment ─────────────────────
-    if (/^\w+\s*(<-|=)\s*[(\[]/.test(trimmed) && !/[,\\]\s*$/.test(trimmed)) {
+    // ── 20. Unclosed paren/bracket on ANY R assignment ────────────────────────
+    if (/^\w+\s*(<-|=)\s*\S/.test(trimmed) && !/[,\\+|&]\s*$/.test(trimmed)) {
       const eqIdx = trimmed.search(/(<-|=)/);
       const expr = trimmed.slice(eqIdx + 2);
-      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
-      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      const s2 = expr.replace(/"[^"]*"|'[^']*'/g, '""');
+      const opens  = (s2.match(/\(/g) || []).length - (s2.match(/\)/g) || []).length;
+      const square = (s2.match(/\[/g) || []).length - (s2.match(/\]/g) || []).length;
       if (opens > 0) {
         push('error', lineNum,
           `Line ${lineNum}: Unclosed parenthesis — expression has ${opens} opening "(" without a matching ")"`,
@@ -1468,6 +1469,144 @@ const checkRLines = (lines) => {
         push('error', lineNum,
           `Line ${lineNum}: Unclosed bracket — expression has ${square} opening "[" without a matching "]"`,
           'Add the missing closing bracket: x <- df[1, ]');
+      }
+    }
+
+    // ── 21. na.rm=TRU / na.rm=FALS typos ─────────────────────────────────────
+    if (/\bna\.rm\s*=\s*(TRU|FALS)\b/.test(trimmed)) {
+      const got = trimmed.match(/\bna\.rm\s*=\s*(TRU|FALS)\b/)[1];
+      push('error', lineNum,
+        `Line ${lineNum}: "${got}" is not valid — did you mean na.rm=${got === 'TRU' ? 'TRUE' : 'FALSE'}?`,
+        `Change ${got} → ${got === 'TRU' ? 'TRUE' : 'FALSE'}`);
+    }
+
+    // ── 22. ggplot layer missing + operator on same line ──────────────────────
+    if (/\bggplot\s*\(/.test(trimmed) && /\)\s+(geom_|stat_|scale_|facet_|coord_|theme\s*[_(])\w*\s*\(/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: ggplot layer is missing + operator — use ggplot(...) + geom_*()`,
+        'Add + between ggplot and layer: ggplot(...) + geom_point()');
+    }
+    // ggplot line that ends without + but next line is a layer
+    if (/\bggplot\s*\(.*\)\s*$/.test(trimmed)) {
+      const nextNE = lines.slice(i + 1).find(l => l.trim() !== '' && !l.trim().startsWith('#'));
+      if (nextNE && /^\+?\s*(geom_|stat_|scale_|facet_|coord_|theme\s*[_(])/.test(nextNE.trim()) && !/\+\s*$/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: ggplot(...) must end with + to chain layers — e.g. ggplot(...) +`,
+          'Add + at the end of the ggplot() line');
+      }
+    }
+
+    // ── 23. substr() called with fewer than 3 arguments ──────────────────────
+    if (/\bsubstr\s*\(/.test(trimmed)) {
+      const m = trimmed.match(/\bsubstr\s*\(([^)]*)\)/);
+      if (m && m[1].split(',').length < 3) {
+        push('error', lineNum,
+          `Line ${lineNum}: substr() requires 3 arguments — substr(string, start, stop)`,
+          'Add the missing stop argument: substr(s, 1, 5)');
+      }
+    }
+
+    // ── 24. apply() with non-numeric margin (wrong argument order) ─────────────
+    if (/\bapply\s*\(/.test(trimmed)) {
+      const m = trimmed.match(/\bapply\s*\(\s*[\w.]+\s*,\s*([^,)]+)/);
+      if (m) {
+        const margin = m[1].trim();
+        if (!/^[12]$/.test(margin)) {
+          push('error', lineNum,
+            `Line ${lineNum}: apply() second argument (margin) must be 1 (rows) or 2 (columns), got: "${margin}"`,
+            'Use apply(data, 2, fun) for columns or apply(data, 1, fun) for rows');
+        }
+      }
+    }
+
+    // ── 25. String argument to numeric sampling/distribution functions ─────────
+    if (/\b(rnorm|runif|rpois|rbinom|rexp)\s*\(\s*["']/.test(trimmed)) {
+      const fn = trimmed.match(/\b(rnorm|runif|rpois|rbinom|rexp)\s*\(/)[1];
+      push('error', lineNum,
+        `Line ${lineNum}: ${fn}() first argument (n) must be an integer, not a string`,
+        `Use a number: ${fn}(5)`);
+    }
+    if (/\bsample\s*\([^)]+,\s*["']/.test(trimmed)) {
+      push('error', lineNum,
+        `Line ${lineNum}: sample() size argument must be an integer, not a string`,
+        'Use a number: sample(1:10, 5)');
+    }
+
+    // ── 26. Incomplete model formula — trailing operator ───────────────────────
+    if (/\bm\s*=\s*lm\b|\blm\s*\(/.test(trimmed) || /~/.test(trimmed)) {
+      if (/~[^,)\n]*[+\-*/]\s*[,)]/.test(trimmed) || /~[^,)\n]*[+\-*/]\s*$/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: Incomplete model formula — trailing operator with no right-hand term`,
+          'Remove the trailing operator or add a variable: lm(y ~ x + z, data=df)');
+      }
+    }
+
+    // ── 27. break / next at top level (outside any loop) ──────────────────────
+    if (/^\s*(break|next)\s*;?\s*$/.test(raw) && braceDepth === 0) {
+      const kw = trimmed.replace(/;$/, '');
+      push('error', lineNum,
+        `Line ${lineNum}: "${kw}" outside a loop — ${kw} can only be used inside a for/while loop`,
+        `Move ${kw} inside a loop body: for (...) { ${kw} }`);
+    }
+
+    // ── 28. for() loop missing opening brace ──────────────────────────────────
+    if (/^for\s*\(.+\)\s*$/.test(trimmed)) {
+      const nextNE = lines.slice(i + 1).find(l => l.trim() !== '' && !l.trim().startsWith('#'));
+      if (!nextNE || !nextNE.trim().startsWith('{')) {
+        push('warning', lineNum,
+          `Line ${lineNum}: for() loop body is missing braces — always use { } even for single-line bodies`,
+          'Add braces: for (i in 1:n) { statement }');
+      }
+    }
+
+    // ── 29. function() declaration missing opening brace ──────────────────────
+    if (/\bfunction\s*\([^)]*\)\s*$/.test(trimmed) && !/^\s*#/.test(trimmed)) {
+      const nextNE = lines.slice(i + 1).find(l => l.trim() !== '' && !l.trim().startsWith('#'));
+      if (!nextNE || !nextNE.trim().startsWith('{')) {
+        push('warning', lineNum,
+          `Line ${lineNum}: function body is missing opening brace — wrap the body in { }`,
+          'Add braces: myFn <- function(args) { return(...) }');
+      }
+    }
+
+    // ── 30. Missing comma between function arguments ───────────────────────────
+    // Detects: plot(x y) — two plain identifiers with only whitespace between them
+    if (/\b\w+\s*\(\s*\w+\s+\w+\s*\)/.test(trimmed)) {
+      // Exclude known patterns: for(i in ...), if(cond), function(...), known 2-word args
+      if (!/^(for|if|while|function|switch)\b/.test(trimmed) &&
+          !/\b(in|else|and|or)\b/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: Missing comma between function arguments — use func(arg1, arg2)`,
+          'Add comma: plot(x, y)');
+      }
+    }
+
+    // ── 31. Aggregation functions called with no arguments ────────────────────
+    if (/\b(mean|sum|sd|var|median|max|min|length|nrow|ncol)\s*\(\s*\)/.test(trimmed)) {
+      const fn = trimmed.match(/\b(mean|sum|sd|var|median|max|min|length|nrow|ncol)\s*\(\s*\)/)[1];
+      push('error', lineNum,
+        `Line ${lineNum}: ${fn}() called with no arguments — provide a vector or data frame`,
+        `Use ${fn}(x) where x is a numeric vector`);
+    }
+
+    // ── 32. Single-bracket subscript with unquoted symbol: list1[age] ─────────
+    {
+      const m = trimmed.match(/\b(\w+)\[([a-zA-Z]\w*)\]/);
+      if (m && !['TRUE','FALSE','NULL','NA','T','F'].includes(m[2]) && !/^\d/.test(m[2])) {
+        push('error', lineNum,
+          `Line ${lineNum}: "${m[2]}" is used as a subscript but is not defined — did you mean "${m[1]}"[["${m[2]}"]]?`,
+          `Use double brackets with quotes: ${m[1]}[["${m[2]}"]]`);
+      }
+    }
+
+    // ── 33. Unclosed paren on non-assignment lines (return, print, etc.) ───────
+    if (!/^\w+\s*(<-|=)\s*/.test(trimmed) && !/[,\\+|&]\s*$/.test(trimmed) && /\(/.test(trimmed)) {
+      const s3 = trimmed.replace(/"[^"]*"|'[^']*'/g, '""');
+      const opens = (s3.match(/\(/g) || []).length - (s3.match(/\)/g) || []).length;
+      if (opens > 0 && !/^\s*(for|if|while|else)\b/.test(trimmed)) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed parenthesis — ${opens} opening "(" without a matching ")"`,
+          'Add the missing closing parenthesis');
       }
     }
   });
