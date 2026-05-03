@@ -601,6 +601,50 @@ const checkAdvisoryPatterns = (code, lines) => {
 };
 
 // ── Master SQL analysis function ──────────────────────────────────────────────
+// ── SQL auto-fixer ────────────────────────────────────────────────────────────
+const SQL_AUTO_FIXES = [
+  // Keyword typos (safe single-word replacements)
+  { re: /\bFORM\b(?!\w)/g,           fix: 'FROM' },
+  { re: /\bAUTOIN\b/ig,              fix: 'AUTO_INCREMENT' },
+  { re: /\bREFERENCE\b(?=\s+\w)/ig, fix: 'REFERENCES' },
+  { re: /\bHAVING\b(?!\s)/ig,        fix: 'HAVING ' },
+  { re: /\bLIMIT\s+TO\s+/ig,         fix: 'LIMIT ' },
+  // Boolean literals as strings → bare keywords
+  { re: /\bBOOLEAN\s+DEFAULT\s+'true'/ig,   fix: "BOOLEAN DEFAULT TRUE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'false'/ig,  fix: "BOOLEAN DEFAULT FALSE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'yes'/ig,    fix: "BOOLEAN DEFAULT TRUE" },
+  { re: /\bBOOLEAN\s+DEFAULT\s+'no'/ig,     fix: "BOOLEAN DEFAULT FALSE" },
+  // CREATE VIEW missing AS
+  { re: /\b(CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+\w+)\s+(SELECT\b)/ig, fix: '$1 AS $2' },
+  // DISTINCT after columns → move before
+  // (not safe to auto-fix without parsing, skip)
+];
+
+const fixSQLCode = (code) => {
+  let fixed = code;
+  for (const { re, fix } of SQL_AUTO_FIXES) {
+    fixed = fixed.replace(re, fix);
+  }
+
+  // Fix line-by-line: missing comma after column def in CREATE TABLE
+  // (detect two consecutive non-comma-terminated col defs and add comma to first)
+  const lines = fixed.split('\n');
+  const dataTypeKw = /\b(INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|REAL|MONEY|CHAR|VARCHAR|TEXT|DATE|TIME|TIMESTAMP|DATETIME|BOOLEAN|BOOL|SERIAL|UUID|JSON|JSONB|BYTEA|NVARCHAR|NCHAR)\b/i;
+  let inCreate = false;
+  for (let i = 0; i < lines.length - 1; i++) {
+    const t = lines[i].trimEnd();
+    const next = lines[i + 1].trim();
+    if (/\bCREATE\s+(TEMP\w*\s+)?TABLE\b/i.test(t)) { inCreate = true; continue; }
+    if (inCreate && /^\)/.test(next)) { inCreate = false; continue; }
+    if (inCreate && dataTypeKw.test(t) && !t.endsWith(',') && !t.endsWith('(')) {
+      if (dataTypeKw.test(next) || /^\s*(CONSTRAINT|PRIMARY|FOREIGN|UNIQUE|CHECK)\b/i.test(next)) {
+        lines[i] = t + ',';
+      }
+    }
+  }
+  return lines.join('\n');
+};
+
 const analyzeSQL = (code) => {
   const lines = code.split('\n');
   const allErrors = [];
@@ -632,7 +676,10 @@ const analyzeSQL = (code) => {
   // Sort by line number
   errors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
 
-  const fixed = null; // Multi-statement scripts not auto-fixed to avoid corruption
+  // Auto-fix: only return fixedCode when it actually differs
+  const fixedCode = fixSQLCode(code);
+  const fixed = fixedCode !== code ? fixedCode : null;
+
   return { errors, fixed, suggestions: generateSQLSuggestions(code) };
 };
 
