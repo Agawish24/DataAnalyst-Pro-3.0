@@ -1,4 +1,5 @@
 const express = require('express');
+const https = require('https');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 
@@ -301,6 +302,71 @@ const checkSQLLines = (lines) => {
           fix: 'Add IN before subquery: WHERE col IN (SELECT ...)',
         });
       }
+    }
+
+    // ── IN (table WHERE ...) — subquery missing SELECT keyword
+    if (/\bIN\s*\(\s*\w+\s+WHERE\b/i.test(stripped)) {
+      errors.push({
+        type: 'error', line: lineNum, language: 'sql',
+        message: `Line ${lineNum}: Subquery missing SELECT — use IN (SELECT col FROM table WHERE ...)`,
+        fix: 'Add SELECT: IN (SELECT col FROM table WHERE condition)',
+      });
+    }
+
+    // ── EXISTS employees (bare table name, no SELECT)
+    if (/\bEXISTS\s+\w+\s*$/i.test(stripped) && !/\bEXISTS\s*\(/i.test(stripped)) {
+      errors.push({
+        type: 'error', line: lineNum, language: 'sql',
+        message: `Line ${lineNum}: EXISTS requires a subquery — use EXISTS (SELECT 1 FROM table WHERE ...)`,
+        fix: 'Add subquery: EXISTS (SELECT 1 FROM table WHERE condition)',
+      });
+    }
+
+    // ── ALTER TABLE missing COLUMN keyword: ALTER TABLE t DROP bonus
+    if (/\bALTER\s+TABLE\s+\w+\s+(DROP|ADD|MODIFY)\s+(?!COLUMN\b)\w+/i.test(stripped)) {
+      const kw = (stripped.match(/\b(DROP|ADD|MODIFY)\b/i) || [])[1] || '';
+      // Only flag DROP/MODIFY — ADD is sometimes valid without COLUMN
+      if (/\b(DROP|MODIFY)\b/i.test(kw)) {
+        errors.push({
+          type: 'error', line: lineNum, language: 'sql',
+          message: `Line ${lineNum}: ALTER TABLE ${kw} may be missing COLUMN keyword — use ALTER TABLE t ${kw} COLUMN col_name`,
+          fix: `Add COLUMN: ALTER TABLE tablename ${kw} COLUMN column_name`,
+        });
+      }
+    }
+
+    // ── CREATE SCHEMA with no name: CREATE SCHEMA;
+    if (/\bCREATE\s+SCHEMA\s*;/i.test(stripped)) {
+      errors.push({
+        type: 'error', line: lineNum, language: 'sql',
+        message: `Line ${lineNum}: CREATE SCHEMA requires a name — CREATE SCHEMA schema_name`,
+        fix: 'Add schema name: CREATE SCHEMA my_schema',
+      });
+    }
+
+    // ── UPDATE missing comma between SET assignments (col=val col2=val2 no comma)
+    if (/\bSET\b/i.test(stripped) && /\bUPDATE\b/i.test(stripped)) {
+      const setMatch = stripped.match(/\bSET\s+(.+?)(?:\bWHERE\b|$)/i);
+      if (setMatch) {
+        const setClause = setMatch[1];
+        if (/\w+\s*=\s*[^,\s]+\s+\w+\s*=/.test(setClause) && !setClause.includes(',')) {
+          errors.push({
+            type: 'error', line: lineNum, language: 'sql',
+            message: `Line ${lineNum}: UPDATE SET clause missing comma between assignments`,
+            fix: 'Separate assignments with commas: SET col1=val1, col2=val2',
+          });
+        }
+      }
+    }
+
+    // ── DROP TABLE / DROP INDEX missing table/index name: just DROP TABLE;
+    if (/\bDROP\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA)\s*;/i.test(stripped)) {
+      const what = (stripped.match(/\bDROP\s+(TABLE|INDEX|VIEW|DATABASE|SCHEMA)\b/i) || [])[1] || '';
+      errors.push({
+        type: 'error', line: lineNum, language: 'sql',
+        message: `Line ${lineNum}: DROP ${what.toUpperCase()} missing name — DROP ${what.toUpperCase()} object_name`,
+        fix: `Add name: DROP ${what.toUpperCase()} your_${what.toLowerCase()}_name`,
+      });
     }
 
     // ── Invalid date format: non-ISO date in a string literal
@@ -1847,6 +1913,53 @@ const generateRSuggestions = (code) => {
   return s;
 };
 
+// ── Groq AI fix suggestion ────────────────────────────────────────────────────
+const groqAIFix = (code, language, errors) => new Promise((resolve) => {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return resolve(null);
+
+  const errorSummary = errors.slice(0, 10).map(e => `- ${e.message}`).join('\n');
+  const prompt = `You are a ${language.toUpperCase()} syntax expert. The following code has these detected errors:\n${errorSummary}\n\nCode:\n\`\`\`${language}\n${code.slice(0, 3000)}\n\`\`\`\n\nProvide a corrected version of the entire code. Reply with ONLY the fixed code inside a single \`\`\`${language} ... \`\`\` block, no explanation.`;
+
+  const body = JSON.stringify({
+    model: 'llama-3.1-8b-instant',
+    messages: [
+      { role: 'system', content: 'You are a precise code syntax fixer. Output only the corrected code in a code block.' },
+      { role: 'user', content: prompt },
+    ],
+    max_tokens: 2048,
+    temperature: 0.1,
+  });
+
+  const options = {
+    hostname: 'api.groq.com',
+    path: '/openai/v1/chat/completions',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Length': Buffer.byteLength(body),
+    },
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const text = json.choices?.[0]?.message?.content || '';
+        const match = text.match(/```[\w]*\n?([\s\S]*?)```/);
+        resolve(match ? match[1].trim() : null);
+      } catch { resolve(null); }
+    });
+  });
+  req.on('error', () => resolve(null));
+  req.setTimeout(20000, () => { req.destroy(); resolve(null); });
+  req.write(body);
+  req.end();
+});
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 router.get('/languages', authenticate, (req, res) => {
@@ -1859,7 +1972,7 @@ router.get('/languages', authenticate, (req, res) => {
 
 router.post('/analyze', authenticate, async (req, res) => {
   try {
-    const { code, language = 'sql' } = req.body;
+    const { code, language = 'sql', useAI = false } = req.body;
     if (!code) return res.status(400).json({ error: 'code is required' });
 
     let result;
@@ -1869,9 +1982,16 @@ router.post('/analyze', authenticate, async (req, res) => {
     else if (lang === 'r') result = analyzeR(code);
     else return res.status(400).json({ error: 'Language must be sql, python, or r' });
 
+    // If there are errors and AI is requested (or GROQ key is available), get AI fix
+    let aiFixedCode = null;
+    const hasGroq = !!process.env.GROQ_API_KEY;
+    if (result.errors.length > 0 && (useAI || hasGroq)) {
+      aiFixedCode = await groqAIFix(code, lang, result.errors);
+    }
+
     await pool.query(
       'INSERT INTO syntax_sessions (language, code, errors, suggestions, fixed_code, user_id) VALUES ($1,$2,$3,$4,$5,$6)',
-      [lang, code.slice(0, 5000), JSON.stringify(result.errors), JSON.stringify(result.suggestions), result.fixed, req.user.id]
+      [lang, code.slice(0, 5000), JSON.stringify(result.errors), JSON.stringify(result.suggestions), result.fixed || aiFixedCode, req.user.id]
     ).catch(() => {});
 
     res.json({
@@ -1880,8 +2000,35 @@ router.post('/analyze', authenticate, async (req, res) => {
       errors: result.errors,
       suggestions: result.suggestions,
       fixedCode: result.fixed,
+      aiFixedCode,
       isClean: result.errors.length === 0,
+      hasAI: hasGroq,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Standalone AI fix endpoint — called explicitly when user clicks "AI Fix"
+router.post('/ai-fix', authenticate, async (req, res) => {
+  try {
+    const { code, language = 'sql', errors = [] } = req.body;
+    if (!code) return res.status(400).json({ error: 'code is required' });
+    if (!process.env.GROQ_API_KEY) return res.status(503).json({ error: 'AI fix not available — GROQ_API_KEY not configured' });
+
+    const lang = language.toLowerCase();
+    // Run static analysis if no errors passed in
+    let errs = errors;
+    if (!errs.length) {
+      let result;
+      if (lang === 'sql') result = analyzeSQL(code);
+      else if (lang === 'python' || lang === 'py') result = analyzePython(code);
+      else if (lang === 'r') result = analyzeR(code);
+      if (result) errs = result.errors;
+    }
+
+    const aiFixed = await groqAIFix(code, lang, errs);
+    if (!aiFixed) return res.status(502).json({ error: 'AI fix failed — model did not return corrected code' });
+
+    res.json({ aiFixedCode: aiFixed, errorCount: errs.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
