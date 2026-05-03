@@ -368,6 +368,37 @@ const checkSQLLines = (lines) => {
 
     // ── Missing comma in CREATE TABLE body (detect two col defs on adjacent lines)
     // This is handled in statement-level analysis
+
+    // ── Unterminated string literal (odd number of unescaped single quotes) ────
+    {
+      let inStr = false;
+      for (let ci = 0; ci < stripped.length; ci++) {
+        const ch = stripped[ci];
+        if (ch === "'" ) {
+          if (inStr && stripped[ci + 1] === "'") { ci++; continue; } // escaped ''
+          inStr = !inStr;
+        }
+      }
+      if (inStr) {
+        errors.push({
+          type: 'error', line: lineNum, language: 'sql',
+          message: `Line ${lineNum}: Unterminated string literal — the single-quoted string was opened but never closed`,
+          fix: "Add the matching closing single quote: WHERE name = 'value'",
+        });
+      }
+    }
+
+    // ── Unclosed parenthesis on this line (only flag simple single-line expressions) ─
+    if (!/^\s*(SELECT|FROM|WHERE|JOIN|GROUP|ORDER|HAVING|UNION|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH)\b/i.test(stripped)) {
+      const opens = (stripped.match(/\(/g) || []).length - (stripped.match(/\)/g) || []).length;
+      if (opens > 0) {
+        errors.push({
+          type: 'error', line: lineNum, language: 'sql',
+          message: `Line ${lineNum}: Unclosed parenthesis — ${opens} opening "(" without a matching ")"`,
+          fix: 'Add the missing closing parenthesis',
+        });
+      }
+    }
   }
 
   return errors;
@@ -621,7 +652,7 @@ const SQL_AUTO_FIXES = [
 ];
 
 const fixSQLCode = (code) => {
-  let fixed = code;
+  let fixed = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   for (const { re, fix } of SQL_AUTO_FIXES) {
     fixed = fixed.replace(re, fix);
   }
@@ -646,7 +677,7 @@ const fixSQLCode = (code) => {
 };
 
 const analyzeSQL = (code) => {
-  const lines = code.split('\n');
+  const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const allErrors = [];
 
   // 1. Keyword typo detection (expanded keyword + datatype list)
@@ -1360,6 +1391,39 @@ const checkRLines = (lines) => {
         `Line ${lineNum}: rbind() inside a loop is O(n²) — pre-allocate a list and rbind once outside the loop`,
         'Use: result <- vector("list", n); for (...) { result[[i]] <- ... }; do.call(rbind, result)');
     }
+
+    // ── 19. Unterminated string literal ───────────────────────────────────────
+    {
+      let inSingle = false, inDouble = false;
+      for (let ci = 0; ci < trimmed.length; ci++) {
+        const ch = trimmed[ci];
+        if (ch === '\\') { ci++; continue; }
+        if (!inDouble && ch === "'") { inSingle = !inSingle; continue; }
+        if (!inSingle && ch === '"') { inDouble = !inDouble; continue; }
+      }
+      if (inSingle || inDouble) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unterminated string literal — the string was opened with a quote but never closed`,
+          "Add the matching closing quote: x <- 'Hello'");
+      }
+    }
+
+    // ── 20. Unclosed paren/bracket on simple R assignment ─────────────────────
+    if (/^\w+\s*(<-|=)\s*[(\[]/.test(trimmed) && !/[,\\]\s*$/.test(trimmed)) {
+      const eqIdx = trimmed.search(/(<-|=)/);
+      const expr = trimmed.slice(eqIdx + 2);
+      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
+      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      if (opens > 0) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed parenthesis — expression has ${opens} opening "(" without a matching ")"`,
+          'Add the missing closing parenthesis: x <- c(1, 2, 3)');
+      } else if (square > 0) {
+        push('error', lineNum,
+          `Line ${lineNum}: Unclosed bracket — expression has ${square} opening "[" without a matching "]"`,
+          'Add the missing closing bracket: x <- df[1, ]');
+      }
+    }
   });
 
   // Unbalanced braces (whole-file)
@@ -1400,20 +1464,102 @@ const R_PATTERNS = [
   { re: /\bF\b(?!\w)/, msg: null, fix: c => c.replace(/\bF\b(?!\w)/g, 'FALSE') },
 ];
 
+// ── R auto-fixer (line-by-line) ───────────────────────────────────────────────
+const fixRCode = (code) => {
+  const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const fixed = lines.map(raw => {
+    let line = raw;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+
+    // Python True/False/None → R TRUE/FALSE/NULL
+    line = line.replace(/\bTrue\b/g, 'TRUE');
+    line = line.replace(/\bFalse\b/g, 'FALSE');
+    line = line.replace(/\bNone\b/g, 'NULL');
+
+    // len(x) → length(x)
+    line = line.replace(/\blen\s*\(/g, 'length(');
+
+    // T / F shorthand → TRUE / FALSE (only as standalone tokens, not in variable names)
+    line = line.replace(/\bT\b(?!\w)/g, 'TRUE');
+    line = line.replace(/\bF\b(?!\w)/g, 'FALSE');
+
+    // = for function assignment → <-
+    line = line.replace(/^(\s*)(\w+)\s*=\s*(function\s*\()/, '$1$2 <- $3');
+
+    // 1:length(x) → seq_along(x)
+    line = line.replace(/1:length\(([^)]+)\)/g, 'seq_along($1)');
+
+    // 1:nrow(x) → seq_len(nrow(x))
+    line = line.replace(/1:nrow\(([^)]+)\)/g, 'seq_len(nrow($1))');
+
+    // library("pkg") → library(pkg)
+    line = line.replace(/library\s*\(\s*["']([^"']+)["']\s*\)/g, 'library($1)');
+
+    // Python-style for: for x in vec → for (x in vec) {
+    line = line.replace(/^(\s*)for\s+(\w+)\s+in\s+(.+)$/, (m, ind, v, iter) => {
+      const clean = iter.trimEnd().replace(/:$/, '');
+      return `${ind}for (${v} in ${clean}) {`;
+    });
+
+    // Python-style if/while without parens: if x > 5: → if (x > 5) {
+    line = line.replace(/^(\s*)(if|while)\s+([^({\n].+?)(?::)?\s*$/, (m, ind, kw, cond) => {
+      const c = cond.trim().replace(/:$/, '');
+      return `${ind}${kw} (${c}) {`;
+    });
+
+    // elif → } else if (...)
+    line = line.replace(/^(\s*)elif\s+([^:]+):?\s*$/, '$1} else if ($2) {');
+
+    // Python def → R function assignment
+    line = line.replace(/^(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*:?\s*$/, '$1$2 <- function($3) {');
+
+    // Unclosed paren/bracket on simple R assignment: x <- c(1,2,3 → x <- c(1,2,3)
+    if (/^\s*\w+\s*(<-|=)\s*[(\[c(]/.test(line) && !/[,\\]\s*$/.test(line)) {
+      const eqIdx = line.search(/(<-|=)/);
+      const expr = line.slice(eqIdx + 2);
+      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
+      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      if (opens > 0)  line = line.trimEnd() + ')'.repeat(opens);
+      else if (square > 0) line = line.trimEnd() + ']'.repeat(square);
+    }
+
+    // Unterminated string literal — walk chars and close open quote
+    {
+      let inSingle = false, inDouble = false;
+      const t = line.trimEnd();
+      for (let ci = 0; ci < t.length; ci++) {
+        const ch = t[ci];
+        if (ch === '\\') { ci++; continue; }
+        if (!inDouble && ch === "'") { inSingle = !inSingle; continue; }
+        if (!inSingle && ch === '"') { inDouble = !inDouble; continue; }
+      }
+      if (inSingle) line = t + "'";
+      else if (inDouble) line = t + '"';
+    }
+
+    return line;
+  });
+  return fixed.join('\n');
+};
+
 const analyzeR = (code) => {
-  const lines = code.split('\n');
+  const normalized = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
   const lineErrors = checkRLines(lines);
-  let fixed = code;
+
+  // Apply line-by-line fixer first, then global pattern fixer on top
+  let fixed = fixRCode(normalized);
 
   const existingMsgs = new Set(lineErrors.map(e => e.message));
   const globalErrors = [];
 
   for (const p of R_PATTERNS) {
     const re = new RegExp(p.re.source, (p.re.flags || '').replace('g', ''));
-    if (re.test(code)) {
-      const match = code.match(re);
+    if (re.test(normalized)) {
+      const match = normalized.match(re);
       if (p.msg) {
-        const lineNum = match ? code.substring(0, match.index).split('\n').length : null;
+        const lineNum = match ? normalized.substring(0, match.index).split('\n').length : null;
         const msg = lineNum ? `Line ${lineNum}: ${p.msg}` : p.msg;
         if (!existingMsgs.has(msg)) {
           globalErrors.push({ type: 'warning', message: msg, language: 'r', line: lineNum });
@@ -1427,7 +1573,7 @@ const analyzeR = (code) => {
   const allErrors = [...lineErrors, ...globalErrors];
   allErrors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
 
-  return { errors: allErrors, fixed: fixed !== code ? fixed : null, suggestions: generateRSuggestions(code) };
+  return { errors: allErrors, fixed: fixed !== normalized ? fixed : null, suggestions: generateRSuggestions(code) };
 };
 
 // ── Suggestion generators ─────────────────────────────────────────────────────
