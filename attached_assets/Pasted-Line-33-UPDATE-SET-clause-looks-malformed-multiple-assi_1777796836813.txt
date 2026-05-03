@@ -1,0 +1,37 @@
+Line 33: UPDATE SET clause looks malformed — multiple assignments need commas, and filter needs WHERE keyword
+Fix: Use: SET col1=val1, col2=val2 WHERE condition
+Line 33
+Line 48: Duplicate table alias — same alias used twice after table name
+Fix: Remove the duplicate alias: FROM tablename alias
+Line 48
+Line 48: Possible duplicate alias — table followed by two plain identifiers; each table should have only one alias
+Fix: Use single alias: FROM tablename alias
+Line 48
+Line 73: Standalone BY — missing GROUP, ORDER, or PARTITION before BY
+Fix: Add GROUP before BY: GROUP BY column_name
+Line 73
+Line ~74: HAVING clause used without GROUP BY — HAVING filters groups and requires GROUP BY
+Fix: Add GROUP BY before HAVING, or replace HAVING with WHERE
+Line 74
+Line 97: Subquery in WHERE clause missing comparison operator — use IN, EXISTS, =, etc.
+Fix: Add IN before subquery: WHERE col IN (SELECT ...)
+Line 97
+Line ~123: UNION column count mismatch — each SELECT must return the same number of columns (got: 2 vs 1)
+Fix: Make all SELECT lists in the UNION return the same number of columns
+Line 123
+Line 194: NOT NULL cannot appear inside a VALUES clause — it's a column constraint, not a value
+Fix: Use NULL to insert a null value, or omit the column
+Line 194
+Line 200: Incomplete IS clause — must be followed by NULL, NOT NULL, TRUE, or FALSE
+Fix: Use: WHERE col IS NULL or WHERE col IS NOT NULL
+Line 200
+Line 210: CREATE FUNCTION missing RETURNS clause — "FUNCTION name(params) RETURNS returntype BEGIN"
+Fix: Add RETURNS before the return type: FUNCTION name(params) RETURNS DECIMAL(10,2)
+Line 210
+Line ~222: CASE expression missing END — 1 CASE but only 0 unmatched END keyword
+Fix: Add END after each CASE block: CASE WHEN ... THEN ... ELSE ... END
+Line 222
+Line 293: Unterminated string literal — the single-quoted string was opened but never closed
+Fix: Add the matching closing single quote: WHERE name = 'value'
+Line 293
+Unmatched single quote — a string literal is not closed
