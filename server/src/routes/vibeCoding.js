@@ -69,6 +69,20 @@ const MODELS = [
     description: 'Reasoning model — thinks step by step, great for complex bugs',
   },
   {
+    id: 'groq-llama-fast',
+    name: 'Llama 3.1 8B',
+    provider: 'groq',
+    model: 'llama-3.1-8b-instant',
+    badge: 'Groq',
+    color: '#f59e0b',
+    free: true,
+    speed: 'Instant',
+    context: '128K tokens',
+    keyLabel: 'Groq API Key',
+    keyUrl: 'https://console.groq.com/keys',
+    description: 'Groq\'s fastest model — 30k TPM free tier, ideal for quick tasks and chat',
+  },
+  {
     id: 'groq-llama',
     name: 'Llama 3.3 70B',
     provider: 'groq',
@@ -126,6 +140,39 @@ Rules:
 - When generating code, add brief inline comments for non-obvious parts
 - Prefer modern idioms and best practices for each language`;
 
+// Per-provider token caps — Groq free tier is 12k TPM so keep output small
+const MAX_TOKENS = {
+  groq: 2048,
+  deepseek: 8192,
+  moonshot: 8192,
+  together: 4096,
+  mistral: 4096,
+  google: 8192,
+};
+
+// Parse a rate-limit error from any provider and return { rateLimited, retryAfter, message }
+const parseRateLimitError = (err) => {
+  const status = err.response?.status;
+  if (status !== 429) return null;
+
+  const body = err.response?.data || {};
+  const rawMsg = body?.error?.message || body?.message || String(body) || '';
+
+  // Extract "Please try again in X.Xs" from Groq-style messages
+  const retryMatch = rawMsg.match(/try again in ([\d.]+)s/i);
+  const retryAfter = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60;
+
+  // Extract model name if present
+  const modelMatch = rawMsg.match(/model ['"`]?([^'"`\s]+)['"`]?/i);
+  const modelName = modelMatch ? modelMatch[1] : 'this model';
+
+  return {
+    rateLimited: true,
+    retryAfter,
+    message: `Rate limit reached for ${modelName}. Please wait ${retryAfter}s and try again (or switch to a model with higher limits).`,
+  };
+};
+
 const callAI = async (provider, model, apiKey, messages) => {
   const headers = { 'Content-Type': 'application/json' };
 
@@ -137,7 +184,7 @@ const callAI = async (provider, model, apiKey, messages) => {
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       })),
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.2 },
+      generationConfig: { maxOutputTokens: MAX_TOKENS.google, temperature: 0.2 },
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     };
     const r = await axios.post(url, body, { timeout: 60000 });
@@ -157,7 +204,7 @@ const callAI = async (provider, model, apiKey, messages) => {
     const r = await axios.post(`${baseURLs[provider]}/chat/completions`, {
       model,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
-      max_tokens: 8192,
+      max_tokens: MAX_TOKENS[provider] || 4096,
       temperature: 0.2,
     }, { headers, timeout: 60000 });
     return r.data.choices[0].message.content;
@@ -228,6 +275,11 @@ router.post('/chat', authenticate, async (req, res) => {
     ).catch(() => {});
     res.json({ response, model: model.name });
   } catch (err) {
+    // Check for rate limit (429) first and return structured info
+    const rateLimitInfo = parseRateLimitError(err);
+    if (rateLimitInfo) {
+      return res.status(429).json(rateLimitInfo);
+    }
     const msg = err.response?.data?.error?.message
       || err.response?.data?.message
       || err.response?.data?.error

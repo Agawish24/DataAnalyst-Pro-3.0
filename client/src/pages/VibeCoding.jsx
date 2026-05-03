@@ -144,6 +144,24 @@ function ChatMessage({ msg }) {
 
   const isUser = msg.role === 'user';
 
+  const renderInline = (text) => {
+    const segments = [];
+    let last = 0;
+    const combined = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^)]+)\))/g;
+    let m;
+    while ((m = combined.exec(text)) !== null) {
+      if (m.index > last) segments.push(<span key={last}>{text.slice(last, m.index)}</span>);
+      if (m[0].startsWith('**')) {
+        segments.push(<strong key={m.index} style={{ color: '#f3f4f6' }}>{m[2]}</strong>);
+      } else {
+        segments.push(<a key={m.index} href={m[4]} target="_blank" rel="noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>{m[3]}</a>);
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) segments.push(<span key={last}>{text.slice(last)}</span>);
+    return segments.length ? segments : text;
+  };
+
   const renderContent = (text) => {
     const parts = text.split(/(```[\s\S]*?```)/g);
     return parts.map((part, i) => {
@@ -164,20 +182,28 @@ function ChatMessage({ msg }) {
           </div>
         );
       }
-      return part ? <span key={i} style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{part}</span> : null;
+      if (!part) return null;
+      return (
+        <span key={i} style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+          {part.split('\n').map((line, li, arr) => (
+            <span key={li}>{renderInline(line)}{li < arr.length - 1 ? <br /> : null}</span>
+          ))}
+        </span>
+      );
     });
   };
 
   return (
-    <div style={{ display: 'flex', gap: 10, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-      <div style={{ width: 32, height: 32, borderRadius: '50%', background: isUser ? '#6366f1' : '#13131f', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        {isUser ? <span style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>U</span> : <Bot size={16} color="#6366f1" />}
+    <div style={{ display: 'flex', gap: 10, padding: '12px 0', borderBottom: `1px solid ${msg.isError ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)'}`, background: msg.isError ? 'rgba(245,158,11,0.05)' : 'transparent', borderRadius: msg.isError ? 8 : 0, paddingLeft: msg.isError ? 10 : 0 }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: isUser ? '#6366f1' : msg.isError ? 'rgba(245,158,11,0.2)' : '#13131f', border: `1px solid ${msg.isError ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {isUser ? <span style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>U</span> : <Bot size={16} color={msg.isError ? '#f59e0b' : '#6366f1'} />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {msg.modelName && !isUser && (
           <div style={{ fontSize: 11, color: '#4b5563', marginBottom: 6 }}>{msg.modelName}</div>
         )}
-        <div style={{ color: isUser ? '#9ca3af' : '#d1d5db', fontSize: 13 }}>
+        {msg.isError && <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, marginBottom: 4 }}>⚠ Rate Limited</div>}
+        <div style={{ color: isUser ? '#9ca3af' : msg.isError ? '#fcd34d' : '#d1d5db', fontSize: 13 }}>
           {renderContent(msg.content)}
         </div>
       </div>
@@ -238,14 +264,23 @@ export default function VibeCoding() {
         modelName: r.data.model,
       }]);
     } catch (e) {
-      const err = e.response?.data?.error || 'Request failed';
-      if (e.response?.data?.needsKey) {
-        setShowKeys(true);
-        toast.error(err);
+      const data = e.response?.data || {};
+      if (data.rateLimited) {
+        const secs = data.retryAfter || 60;
+        toast.error(`Rate limit hit — wait ${secs}s then retry, or switch to Llama 3.1 8B (higher limits)`, { duration: Math.min(secs * 1000, 12000) });
+        setMessages(prev => [...prev.slice(0, -1), {
+          role: 'assistant',
+          content: `⚠️ **Rate limit reached** — the model is temporarily throttled.\n\nPlease wait **${secs} seconds** and try again, or switch to **Llama 3.1 8B** (30k TPM limit vs 12k for 70B) in the model list on the left.\n\nGroq free tier: [upgrade at console.groq.com/settings/billing](https://console.groq.com/settings/billing)`,
+          isError: true,
+        }]);
       } else {
+        const err = data.error || 'Request failed';
+        if (data.needsKey) {
+          setShowKeys(true);
+        }
         toast.error(err);
+        setMessages(prev => prev.slice(0, -1));
       }
-      setMessages(prev => prev.slice(0, -1));
     } finally {
       setLoading(false);
       inputRef.current?.focus();
