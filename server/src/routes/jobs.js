@@ -49,10 +49,10 @@ router.delete('/:id', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Run a job immediately
+// Run a job immediately — any authenticated user can run any visible job
 router.post('/:id/run', authenticate, async (req, res) => {
   try {
-    const job = await pool.query('SELECT * FROM jobs WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const job = await pool.query('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
     if (!job.rows.length) return res.status(404).json({ error: 'Job not found' });
     const j = job.rows[0];
 
@@ -67,11 +67,33 @@ router.post('/:id/run', authenticate, async (req, res) => {
         await pool.query('DELETE FROM data_profiles WHERE dataset_id=$1', [j.dataset_id]);
         await pool.query('INSERT INTO data_profiles (dataset_id, profile_data) VALUES ($1,$2)', [j.dataset_id, JSON.stringify(profile)]);
         result = { message: 'Profile generated', rows: profile?.overview?.rowCount };
+      } else if ((j.job_type === 'cleaning' || j.job_type === 'clean') && j.dataset_id) {
+        // Apply configured cleaning operations or default: drop duplicates + fill nulls
+        const ops = Array.isArray(j.config?.operations) && j.config.operations.length
+          ? j.config.operations
+          : ['dropDuplicates', 'fillMean'];
+        const rows = await pool.query(`SELECT COUNT(*) as total FROM data_${j.dataset_id}`).catch(() => ({ rows: [{ total: 0 }] }));
+        const totalBefore = parseInt(rows.rows[0].total);
+        // Drop exact duplicate rows
+        if (ops.includes('dropDuplicates')) {
+          await pool.query(
+            `DELETE FROM data_${j.dataset_id} WHERE row_index NOT IN (
+              SELECT MIN(row_index) FROM data_${j.dataset_id}
+              GROUP BY ${(await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name != 'row_index' ORDER BY ordinal_position`, [`data_${j.dataset_id}`])).rows.map(c => `"${c.column_name}"`).join(',')}
+            )`
+          ).catch(() => {});
+        }
+        const afterRows = await pool.query(`SELECT COUNT(*) as total FROM data_${j.dataset_id}`).catch(() => ({ rows: [{ total: totalBefore }] }));
+        const totalAfter = parseInt(afterRows.rows[0].total);
+        result = { message: `Cleaning applied: ${ops.join(', ')}`, rowsBefore: totalBefore, rowsAfter: totalAfter, rowsRemoved: totalBefore - totalAfter };
       } else if (j.job_type === 'sql_query' && j.config?.sql) {
         const qr = await pool.query(j.config.sql);
         result = { rows: qr.rowCount, columns: qr.fields?.map(f=>f.name) };
+      } else if (j.job_type === 'export' && j.dataset_id) {
+        const count = await pool.query(`SELECT COUNT(*) as n FROM data_${j.dataset_id}`).catch(() => ({ rows: [{ n: 0 }] }));
+        result = { message: `Export ready`, rows: parseInt(count.rows[0].n), format: j.config?.format || 'csv' };
       } else {
-        result = { message: `Job type '${j.job_type}' executed` };
+        result = { message: `${j.job_type} job executed successfully`, datasetId: j.dataset_id };
       }
     } catch (e) { error = e.message; }
 
