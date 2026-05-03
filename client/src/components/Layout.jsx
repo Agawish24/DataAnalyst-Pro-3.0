@@ -128,12 +128,12 @@ export default function Layout({ children }) {
   const visibleGroups = navGroups.filter(g => !g.adminOnly || user?.role === 'admin');
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#0f0f1a', direction: dir, fontFamily: isAr ? 'Arial, sans-serif' : 'inherit' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#0f0f1a', direction: dir, fontFamily: isAr ? 'Arial, sans-serif' : 'inherit' }}>
       {/* Sidebar */}
       <aside style={{
         width: sidebarOpen ? 224 : 56, transition: 'width 0.2s', background: '#13131f',
         borderRight: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column',
-        flexShrink: 0, overflowX: 'hidden', overflowY: 'auto'
+        flexShrink: 0, overflowX: 'hidden', height: '100vh',
       }}>
         {/* Logo */}
         <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
@@ -149,7 +149,7 @@ export default function Layout({ children }) {
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '8px 0' }}>
+        <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto', overflowX: 'hidden' }}>
           {visibleGroups.map(group => (
             <div key={group.label}>
               {sidebarOpen && (

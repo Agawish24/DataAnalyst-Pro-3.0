@@ -608,5 +608,104 @@ def automl():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/anomaly-stream', methods=['POST'])
+def anomaly_stream():
+    try:
+        body = request.get_json()
+        data = body.get('data', [])
+        threshold = float(body.get('threshold', 2.5))
+        window = int(body.get('window', 10))
+
+        if not data:
+            return jsonify({'error': 'data array required'}), 400
+
+        series = np.array([float(x) for x in data], dtype=float)
+        anomalies = []
+        scores = []
+
+        for i in range(len(series)):
+            start = max(0, i - window)
+            window_data = series[start:i + 1]
+            mean = float(np.mean(window_data))
+            std = float(np.std(window_data)) if len(window_data) > 1 else 0.0
+            z = abs(series[i] - mean) / (std + 1e-9)
+            scores.append(round(float(z), 4))
+            if z > threshold:
+                anomalies.append({
+                    'index': i,
+                    'value': float(series[i]),
+                    'z_score': round(float(z), 4),
+                    'window_mean': round(mean, 4),
+                    'window_std': round(std, 4),
+                })
+
+        return jsonify({
+            'total_points': len(series),
+            'anomalies_found': len(anomalies),
+            'anomaly_rate': round(len(anomalies) / max(len(series), 1) * 100, 2),
+            'anomalies': anomalies[:100],
+            'scores': scores[:500],
+            'threshold': threshold,
+            'window': window,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/geo-cluster', methods=['POST'])
+def geo_cluster():
+    try:
+        body = request.get_json()
+        points = body.get('points', [])
+        n_clusters = int(body.get('n_clusters', 5))
+        algorithm = body.get('algorithm', 'kmeans')
+
+        if not points:
+            return jsonify({'error': 'points array required'}), 400
+
+        coords = np.array([[p['lat'], p['lng']] for p in points], dtype=float)
+
+        if algorithm == 'dbscan':
+            eps = float(body.get('eps', 0.5))
+            model = DBSCAN(eps=eps, min_samples=3)
+        else:
+            model = KMeans(n_clusters=min(n_clusters, len(coords)), random_state=42, n_init=10)
+
+        labels = model.fit_predict(coords)
+        unique_labels, counts = np.unique(labels, return_counts=True)
+
+        clusters = {}
+        for label, count in zip(unique_labels.tolist(), counts.tolist()):
+            mask = labels == label
+            cluster_coords = coords[mask]
+            clusters[int(label)] = {
+                'size': count,
+                'centroid': {
+                    'lat': round(float(cluster_coords[:, 0].mean()), 6),
+                    'lng': round(float(cluster_coords[:, 1].mean()), 6),
+                },
+                'bbox': {
+                    'min_lat': round(float(cluster_coords[:, 0].min()), 6),
+                    'max_lat': round(float(cluster_coords[:, 0].max()), 6),
+                    'min_lng': round(float(cluster_coords[:, 1].min()), 6),
+                    'max_lng': round(float(cluster_coords[:, 1].max()), 6),
+                }
+            }
+
+        labeled_points = [
+            {**p, 'cluster': int(labels[i])}
+            for i, p in enumerate(points)
+        ]
+
+        return jsonify({
+            'algorithm': algorithm,
+            'n_clusters': len(unique_labels),
+            'clusters': clusters,
+            'points': labeled_points,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)

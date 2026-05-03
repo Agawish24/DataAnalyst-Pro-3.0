@@ -7,7 +7,7 @@ const router = express.Router();
 // GET / with ?dataset_id=N query param
 router.get('/', authenticate, async (req, res) => {
   const { dataset_id, target_type, target_ref } = req.query;
-  if (!dataset_id) return res.status(400).json({ error: 'dataset_id query param required' });
+  if (!dataset_id) return res.json([]);
   try {
     let q = `SELECT a.*, u.name as author_name FROM annotations a JOIN users u ON a.user_id = u.id WHERE a.dataset_id = $1`;
     const params = [dataset_id];
