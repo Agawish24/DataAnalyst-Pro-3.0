@@ -76,7 +76,9 @@ export default function ZohoCRM() {
 
   const connect = () => {
     setConnecting(true);
-    window.location.href = '/api/zoho/connect';
+    const token = localStorage.getItem('token');
+    const url = token ? `/api/zoho/connect?token=${encodeURIComponent(token)}` : '/api/zoho/connect';
+    window.location.href = url;
   };
 
   const disconnect = async () => {
