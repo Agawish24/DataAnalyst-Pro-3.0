@@ -180,7 +180,7 @@ router.post('/:id/query', authenticate, async (req, res) => {
   try {
     const { sql } = req.body;
     if (!sql) return res.status(400).json({ error: 'sql is required' });
-    const r = await pool.query('SELECT * FROM connectors WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    const r = await pool.query('SELECT * FROM connectors WHERE id=$1', [req.params.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Connector not found' });
     const rows = await queryConnector(r.rows[0], sql);
     res.json({ rows, rowCount: rows.length, connector: r.rows[0].name });
