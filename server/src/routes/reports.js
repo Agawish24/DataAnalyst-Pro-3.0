@@ -60,7 +60,7 @@ router.get('/', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/generate', authenticate, async (req, res) => {
+const generateReport = async (req, res) => {
   try {
     const { name, dataset_id, dashboard_id, report_type = 'summary', include_sections = ['overview', 'quality', 'statistics', 'correlation'] } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
@@ -87,7 +87,13 @@ router.post('/generate', authenticate, async (req, res) => {
 
     res.status(201).json({ ...result.rows[0], profile });
   } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+router.post('/', authenticate, async (req, res) => {
+  if (!req.body.name && req.body.title) req.body.name = req.body.title;
+  return generateReport(req, res);
 });
+router.post('/generate', authenticate, generateReport);
 
 router.get('/:id', authenticate, async (req, res) => {
   try {

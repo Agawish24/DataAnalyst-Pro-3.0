@@ -63,4 +63,14 @@ router.get('/users', authenticate, async (req, res) => {
   }
 });
 
+// List users (admin-facing, used for team management UI)
+router.get('/users', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC'
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

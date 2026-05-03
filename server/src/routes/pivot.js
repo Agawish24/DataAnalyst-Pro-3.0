@@ -22,8 +22,10 @@ const aggregate = (values, func) => {
 
 router.post('/:datasetId/compute', authenticate, async (req, res) => {
   try {
-    const { row_fields = [], col_fields = [], value_field, aggregator = 'sum', filters = {} } = req.body;
-    if (!value_field) return res.status(400).json({ error: 'value_field required' });
+    const { row_fields = [], col_fields = [], value_field, values, aggregator = 'sum', filters = {} } = req.body;
+    const vf = value_field || values;
+    if (!vf) return res.status(400).json({ error: 'value_field required' });
+    const value_field_resolved = vf;
 
     const data = await pool.query(`SELECT * FROM data_${req.params.datasetId} LIMIT 50000`);
     let rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
@@ -49,7 +51,7 @@ router.post('/:datasetId/compute', authenticate, async (req, res) => {
           const cMatch = col_fields.length === 0 || col_fields.every((f, i) => String(r[f]) === ck.split(' | ')[i]);
           return rMatch && cMatch;
         });
-        const val = aggregate(matching.map(r => r[value_field]), aggregator);
+        const val = aggregate(matching.map(r => r[value_field_resolved]), aggregator);
         matrix[rk][ck] = val !== null ? +val.toFixed(4) : null;
         rowTotals[rk] = (rowTotals[rk] || 0) + (val || 0);
         colTotals[ck] = (colTotals[ck] || 0) + (val || 0);
@@ -57,7 +59,7 @@ router.post('/:datasetId/compute', authenticate, async (req, res) => {
     }
 
     const grandTotal = Object.values(rowTotals).reduce((a, b) => a + b, 0);
-    res.json({ rowKeys, colKeys, matrix, rowTotals, colTotals, grandTotal: +grandTotal.toFixed(4), aggregator, valueField: value_field, rowCount: rows.length });
+    res.json({ rowKeys, colKeys, matrix, rowTotals, colTotals, grandTotal: +grandTotal.toFixed(4), aggregator, valueField: value_field_resolved, rowCount: rows.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

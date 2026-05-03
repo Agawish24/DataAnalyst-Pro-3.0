@@ -110,6 +110,34 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // Get full data — supports both legacy (limit/offset) and paginated (page/pageSize) params
+// Alias: /preview → /data with limit 20
+router.get('/:id/preview', authenticate, async (req, res) => {
+  req.query.limit = req.query.limit || '20';
+  req.query.offset = '0';
+  try {
+    const tableName = `data_${req.params.id}`;
+    const count = await pool.query(`SELECT COUNT(*) FROM ${tableName}`);
+    const total = parseInt(count.rows[0].count);
+    const lim = Math.min(100, parseInt(req.query.limit) || 20);
+    const data = await pool.query(`SELECT * FROM ${tableName} LIMIT $1`, [lim]);
+    const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+    res.json({ data: rows, rows, total, page: 1, pageSize: lim, totalPages: Math.ceil(total / lim) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Alias: /profile → /summary (full profiling report)
+router.get('/:id/profile', authenticate, async (req, res) => {
+  try {
+    const tableName = `data_${req.params.id}`;
+    const data = await pool.query(`SELECT * FROM ${tableName} LIMIT 5000`);
+    const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+    const summary = computeFullSummary(rows);
+    const quality = getDataQuality(rows);
+    const correlation = computeCorrelationMatrix(rows);
+    res.json({ summary, quality, correlation, rowCount: rows.length, columnCount: Object.keys(rows[0] || {}).length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:id/data', authenticate, async (req, res) => {
   try {
     const tableName = `data_${req.params.id}`;

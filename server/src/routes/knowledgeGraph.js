@@ -32,7 +32,7 @@ const ENTITY_COLORS = {
   category: '#f97316', attribute: '#9ca3af',
 };
 
-router.get('/analyze', authenticate, async (req, res) => {
+const buildGraph = async (req, res) => {
   try {
     const datasets = await pool.query(
       'SELECT id, name, schema, row_count FROM datasets WHERE uploaded_by=$1 ORDER BY created_at DESC LIMIT 20',
@@ -131,7 +131,10 @@ router.get('/analyze', authenticate, async (req, res) => {
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
-});
+};
+
+router.get('/', authenticate, buildGraph);
+router.get('/analyze', authenticate, buildGraph);
 
 // Detailed relationship between two datasets
 router.get('/relationships/:id1/:id2', authenticate, async (req, res) => {

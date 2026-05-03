@@ -14,7 +14,14 @@ const getDatasetRows = async (datasetId, limit = 5000) => {
 router.post('/:datasetId/regression', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId);
-    const response = await axios.post(`${PYTHON_SERVICE}/analytics/regression`, { data: rows, ...req.body }, { timeout: 30000 });
+    const { x_column, y_column, target_column, feature_columns, target, features, ...rest } = req.body;
+    const payload = {
+      data: rows,
+      target: target || y_column || target_column,
+      features: features || feature_columns || (x_column ? [x_column] : undefined),
+      ...rest,
+    };
+    const response = await axios.post(`${PYTHON_SERVICE}/analytics/regression`, payload, { timeout: 30000 });
     res.json(response.data);
   } catch (err) {
     if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
@@ -36,7 +43,14 @@ router.post('/:datasetId/clustering', authenticate, async (req, res) => {
 router.post('/:datasetId/classification', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId);
-    const response = await axios.post(`${PYTHON_SERVICE}/analytics/classification`, { data: rows, ...req.body }, { timeout: 30000 });
+    const { target_column, feature_columns, target, features, ...rest } = req.body;
+    const payload = {
+      data: rows,
+      target: target || target_column,
+      features: features || feature_columns,
+      ...rest,
+    };
+    const response = await axios.post(`${PYTHON_SERVICE}/analytics/classification`, payload, { timeout: 30000 });
     res.json(response.data);
   } catch (err) {
     if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
@@ -76,7 +90,9 @@ router.get('/:datasetId/outliers', authenticate, async (req, res) => {
 router.post('/:datasetId/prescriptive', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId, 3000);
-    const response = await axios.post(`${PYTHON_SERVICE}/prescriptive`, { rows, ...req.body }, { timeout: 60000 });
+    const { target_column, target_col, target, ...rest } = req.body;
+    const payload = { rows, target_col: target_col || target_column || target, ...rest };
+    const response = await axios.post(`${PYTHON_SERVICE}/prescriptive`, payload, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
     if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
@@ -105,12 +121,36 @@ router.post('/:datasetId/prophet', authenticate, async (req, res) => {
 router.post('/:datasetId/root-cause', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId, 5000);
-    const response = await axios.post(`${PYTHON_SERVICE}/root-cause`, { rows, ...req.body }, { timeout: 30000 });
+    const { target_column, target_col, target, ...rest } = req.body;
+    const payload = { rows, target_col: target_col || target_column || target, ...rest };
+    const response = await axios.post(`${PYTHON_SERVICE}/root-cause`, payload, { timeout: 30000 });
     res.json(response.data);
   } catch (err) {
     if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python analytics service unavailable' });
     res.status(500).json({ error: err.response?.data?.error || err.message });
   }
+});
+
+// Summary alias — returns full column statistics for a dataset
+router.get('/:datasetId/summary', authenticate, async (req, res) => {
+  try {
+    const rows = await getDatasetRows(req.params.datasetId, 5000);
+    const { computeFullSummary, computeCorrelationMatrix } = require('../helpers/statsHelper');
+    const { getDataQuality } = require('../helpers/dataClean');
+    const summary = computeFullSummary(rows);
+    const quality = getDataQuality(rows);
+    res.json({ summary, quality, rowCount: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Correlation alias — returns correlation matrix for numeric columns
+router.get('/:datasetId/correlation', authenticate, async (req, res) => {
+  try {
+    const rows = await getDatasetRows(req.params.datasetId, 5000);
+    const { computeCorrelationMatrix } = require('../helpers/statsHelper');
+    const correlation = computeCorrelationMatrix(rows);
+    res.json({ correlation, rowCount: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

@@ -4,10 +4,32 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/', authenticate, async (req, res) => {
+const listLayers = async (req, res) => {
   try {
     const r = await pool.query('SELECT gl.*, d.name as dataset_name FROM geo_layers gl LEFT JOIN datasets d ON gl.dataset_id=d.id WHERE gl.created_by=$1 ORDER BY gl.created_at DESC', [req.user.id]);
     res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+router.get('/', authenticate, listLayers);
+router.get('/layers', authenticate, listLayers);
+
+// On-demand GeoJSON generation from body params (no saved layer needed)
+router.post('/geojson', authenticate, async (req, res) => {
+  try {
+    const { dataset_id, lat_col, lng_col, value_col } = req.body;
+    if (!dataset_id) return res.status(400).json({ error: 'dataset_id required' });
+    const latC = lat_col || 'lat'; const lngC = lng_col || 'lng';
+    const cols = [latC, lngC, value_col].filter(Boolean).map(c => `"${c}"`).join(', ');
+    const data = await pool.query(`SELECT ${cols} FROM data_${dataset_id} LIMIT 5000`).catch(() => ({ rows: [] }));
+    const features = data.rows
+      .map(row => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [parseFloat(row[lngC]), parseFloat(row[latC])] },
+        properties: value_col ? { value: parseFloat(row[value_col]) || 0 } : {},
+      }))
+      .filter(f => !isNaN(f.geometry.coordinates[0]) && !isNaN(f.geometry.coordinates[1]));
+    res.json({ type: 'FeatureCollection', features, pointCount: features.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

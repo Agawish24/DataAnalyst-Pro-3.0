@@ -123,6 +123,7 @@ const handleConvert = async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
+router.post('/', authenticate, handleConvert);
 router.post('/query', authenticate, handleConvert);
 router.post('/convert', authenticate, handleConvert);
 

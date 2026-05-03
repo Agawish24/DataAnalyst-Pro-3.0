@@ -193,6 +193,14 @@ const generateRSuggestions = (code) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+router.get('/languages', authenticate, (req, res) => {
+  res.json([
+    { id: 'sql', name: 'SQL', icon: 'database', description: 'Structured Query Language for database queries', extensions: ['.sql'] },
+    { id: 'python', name: 'Python', icon: 'code', description: 'General-purpose language popular for data science', extensions: ['.py'] },
+    { id: 'r', name: 'R', icon: 'bar-chart', description: 'Statistical computing and data visualization', extensions: ['.r', '.R'] },
+  ]);
+});
+
 router.post('/analyze', authenticate, async (req, res) => {
   try {
     const { code, language = 'sql' } = req.body;
@@ -219,6 +227,31 @@ router.get('/history', authenticate, async (req, res) => {
     const r = await pool.query('SELECT * FROM syntax_sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20', [req.user.id]);
     res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /templates?language=sql (query param version)
+router.get('/templates', authenticate, (req, res) => {
+  req.params = { language: req.query.language || 'sql' };
+  const lang = req.params.language.toLowerCase();
+  const templates = {
+    sql: [
+      { name: 'Basic SELECT', code: 'SELECT column1, column2\nFROM dataset\nWHERE condition = true\nORDER BY column1 ASC\nLIMIT 100;' },
+      { name: 'Aggregation with GROUP BY', code: 'SELECT category, COUNT(*) AS count, SUM(value) AS total, AVG(value) AS avg_value\nFROM dataset\nGROUP BY category\nHAVING COUNT(*) > 5\nORDER BY total DESC;' },
+      { name: 'Window Function', code: 'SELECT name, value,\n  SUM(value) OVER (PARTITION BY category ORDER BY date) AS running_total,\n  ROW_NUMBER() OVER (PARTITION BY category ORDER BY value DESC) AS rank\nFROM dataset;' },
+      { name: 'CTE', code: 'WITH summary AS (\n  SELECT category, AVG(value) AS avg_val\n  FROM dataset GROUP BY category\n)\nSELECT d.*, s.avg_val FROM dataset d\nJOIN summary s ON d.category = s.category\nWHERE d.value > s.avg_val;' },
+      { name: 'Time-series monthly', code: "SELECT DATE_TRUNC('month', date_column) AS month, COUNT(*) AS records, SUM(value) AS total\nFROM dataset\nGROUP BY DATE_TRUNC('month', date_column)\nORDER BY month;" },
+    ],
+    python: [
+      { name: 'Pandas EDA', code: 'import pandas as pd\ndf = pd.read_csv("data.csv")\nprint(df.shape)\nprint(df.describe())\nprint(df.isnull().sum())' },
+      { name: 'Data Cleaning', code: "import pandas as pd\ndf = pd.read_csv('data.csv')\ndf = df.drop_duplicates()\ndf['col'].fillna(df['col'].median(), inplace=True)" },
+      { name: 'Sklearn Pipeline', code: 'from sklearn.pipeline import Pipeline\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import train_test_split\npipeline = Pipeline([(\'model\', RandomForestClassifier())])\npipeline.fit(X_train, y_train)' },
+    ],
+    r: [
+      { name: 'tidyverse EDA', code: 'library(tidyverse)\ndf <- read_csv("data.csv")\nglimpse(df)\nsummary(df)' },
+      { name: 'dplyr Aggregation', code: 'library(dplyr)\nresult <- df |> group_by(category) |> summarise(mean_val = mean(value), n = n())' },
+    ],
+  };
+  res.json(templates[lang] || []);
 });
 
 router.get('/templates/:language', authenticate, async (req, res) => {

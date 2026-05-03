@@ -78,7 +78,18 @@ const suggestChart = (rows, sql) => {
   return { type: 'table', config: {} };
 };
 
-router.post('/query', authenticate, async (req, res) => {
+const handleAIQuery = async (req, res) => {
+  try {
+    const { naturalLanguage, message, datasetId, dataset_id } = req.body;
+    const nlText = naturalLanguage || message;
+    const dsId = datasetId || dataset_id;
+    req.body.naturalLanguage = nlText;
+    req.body.datasetId = dsId;
+    return handleAIQueryCore(req, res);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+const handleAIQueryCore = async (req, res) => {
   try {
     const { naturalLanguage, datasetId } = req.body;
     if (!naturalLanguage) return res.status(400).json({ error: 'Natural language query required' });
@@ -113,7 +124,10 @@ router.post('/query', authenticate, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+router.post('/chat', authenticate, handleAIQuery);
+router.post('/query', authenticate, handleAIQueryCore);
 
 router.get('/history', authenticate, async (req, res) => {
   try {

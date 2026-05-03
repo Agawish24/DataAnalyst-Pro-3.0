@@ -97,10 +97,24 @@ router.get('/templates', authenticate, (req, res) => {
   ]);
 });
 
+router.get('/history', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.name as title, r.dataset_id, r.created_at, r.report_type, d.name as dataset_name
+       FROM reports r LEFT JOIN datasets d ON r.dataset_id=d.id
+       WHERE r.created_by=$1 ORDER BY r.created_at DESC LIMIT 20`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/generate', authenticate, async (req, res) => {
-  const { datasetId, title, template = 'detailed' } = req.body;
-  if (!datasetId) return res.status(400).json({ error: 'datasetId required' });
-  req.params = { datasetId: String(datasetId) };
+  const { datasetId, dataset_id, title, template = 'detailed' } = req.body;
+  const dsId = datasetId || dataset_id;
+  if (!dsId) return res.status(400).json({ error: 'datasetId required' });
+  req.body.datasetId = dsId;
+  req.params = { datasetId: String(dsId) };
   req.body.title = title;
   try {
     const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.datasetId]);

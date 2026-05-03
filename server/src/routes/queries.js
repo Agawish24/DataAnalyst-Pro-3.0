@@ -5,7 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 
 // Execute SQL against a dataset table
-router.post('/execute', authenticate, async (req, res) => {
+const executeSQL = async (req, res) => {
   try {
     const { sql, datasetId } = req.body;
     if (!sql) return res.status(400).json({ error: 'SQL is required' });
@@ -42,7 +42,10 @@ router.post('/execute', authenticate, async (req, res) => {
     }
     res.status(400).json({ error: err.message });
   }
-});
+};
+
+router.post('/', authenticate, executeSQL);
+router.post('/execute', authenticate, executeSQL);
 
 // Get query history
 router.get('/history', authenticate, async (req, res) => {

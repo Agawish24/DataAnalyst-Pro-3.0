@@ -21,6 +21,23 @@ const applyMask = (value, maskType, config = {}) => {
   }
 };
 
+// POST / with dataset_id in body (alias for POST /:datasetId)
+router.post('/', authenticate, async (req, res) => {
+  const { dataset_id, column_name, mask_type, mask_config = {} } = req.body;
+  if (!dataset_id) return res.status(400).json({ error: 'dataset_id required' });
+  if (!column_name || !mask_type) return res.status(400).json({ error: 'column_name and mask_type required' });
+  const validTypes = ['email','phone','credit_card','name','partial','hash','redact','nullify','range'];
+  if (!validTypes.includes(mask_type)) return res.status(400).json({ error: `mask_type must be one of: ${validTypes.join(', ')}` });
+  try {
+    await pool.query('DELETE FROM masking_rules WHERE dataset_id=$1 AND column_name=$2', [dataset_id, column_name]);
+    const r = await pool.query(
+      'INSERT INTO masking_rules (dataset_id, column_name, mask_type, mask_config, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [dataset_id, column_name, mask_type, JSON.stringify(mask_config), req.user.id]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/types', authenticate, (req, res) => {
   res.json([
     { type: 'email', label: 'Email Masking', example: 'jo***@example.com', description: 'Masks the username part of email addresses' },

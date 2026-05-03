@@ -209,6 +209,20 @@ router.get('/', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.post('/answer', authenticate, async (req, res) => {
+  try {
+    const { question, dataset_id } = req.body;
+    if (!question) return res.status(400).json({ error: 'Question required' });
+    if (!dataset_id) return res.status(400).json({ error: 'Dataset required' });
+    const analysis = await analyzeRootCause(question, dataset_id);
+    await pool.query(
+      'INSERT INTO business_questions (user_id, dataset_id, question, result) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+      [req.user.id, dataset_id, question, JSON.stringify(analysis)]
+    ).catch(() => {});
+    res.json(analysis);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/analyze', authenticate, async (req, res) => {
   try {
     const { question, dataset_id } = req.body;

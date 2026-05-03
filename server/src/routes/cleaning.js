@@ -77,6 +77,14 @@ router.post('/:datasetId/preview', authenticate, async (req, res) => {
   }
 });
 
+// Alias: /scan → /quality
+router.get('/:datasetId/scan', authenticate, async (req, res) => {
+  try {
+    const rows = await getTableRows(req.params.datasetId);
+    res.json(getDataQuality(rows));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Quality report
 router.get('/:datasetId/quality', authenticate, async (req, res) => {
   try {

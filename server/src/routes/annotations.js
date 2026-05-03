@@ -4,6 +4,40 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// GET / with ?dataset_id=N query param
+router.get('/', authenticate, async (req, res) => {
+  const { dataset_id, target_type, target_ref } = req.query;
+  if (!dataset_id) return res.status(400).json({ error: 'dataset_id query param required' });
+  try {
+    let q = `SELECT a.*, u.name as author_name FROM annotations a JOIN users u ON a.user_id = u.id WHERE a.dataset_id = $1`;
+    const params = [dataset_id];
+    if (target_type) { q += ` AND a.annotation_type = $${params.length + 1}`; params.push(target_type); }
+    if (target_ref)  { q += ` AND a.column_name = $${params.length + 1}`; params.push(target_ref); }
+    q += ' ORDER BY a.created_at DESC';
+    const r = await pool.query(q, params);
+    res.json(r.rows.map(row => ({ ...row, target_type: row.annotation_type || 'dataset', target_ref: row.column_name || null })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST / with dataset_id in body
+router.post('/', authenticate, async (req, res) => {
+  const { dataset_id, target_type, target_ref, content } = req.body;
+  if (!dataset_id) return res.status(400).json({ error: 'dataset_id required' });
+  if (!content) return res.status(400).json({ error: 'content required' });
+  try {
+    const r = await pool.query(
+      `INSERT INTO annotations (dataset_id, annotation_type, column_name, content, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [dataset_id, target_type || 'dataset', target_ref || null, content, req.user.id]
+    );
+    const withAuthor = await pool.query(
+      `SELECT a.*, u.name as author_name FROM annotations a JOIN users u ON a.user_id = u.id WHERE a.id = $1`,
+      [r.rows[0].id]
+    );
+    const row = withAuthor.rows[0];
+    res.status(201).json({ ...row, target_type: row.annotation_type || 'dataset', target_ref: row.column_name || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:datasetId', authenticate, async (req, res) => {
   try {
     const { target_type, target_ref } = req.query;

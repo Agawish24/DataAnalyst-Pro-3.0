@@ -114,6 +114,20 @@ router.post('/:id/simulate', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Alias: /run → /monte-carlo (for frontend compatibility)
+router.post('/run', authenticate, async (req, res) => {
+  try {
+    const PYTHON = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+    const response = await fetch(`${PYTHON}/monte-carlo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Monte Carlo via Python service
 router.post('/monte-carlo', authenticate, async (req, res) => {
   try {
