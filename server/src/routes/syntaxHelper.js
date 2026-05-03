@@ -313,13 +313,35 @@ const checkSQLLines = (lines) => {
       });
     }
 
-    // ── EXISTS employees (bare table name, no SELECT)
-    if (/\bEXISTS\s+\w+\s*$/i.test(stripped) && !/\bEXISTS\s*\(/i.test(stripped)) {
+    // ── EXISTS bare identifier (not a subquery, not IF EXISTS)
+    // Catches:  WHERE EXISTS employees;   WHERE EXISTS employees AND ...
+    // Excludes: IF EXISTS name  (DROP TABLE IF EXISTS foo)
+    //           EXISTS (SELECT ...)  (correct usage)
+    if (
+      /\bEXISTS\s+(?!\s*\()\w+/i.test(stripped) &&
+      !/\bIF\s+EXISTS\b/i.test(stripped)
+    ) {
       errors.push({
         type: 'error', line: lineNum, language: 'sql',
         message: `Line ${lineNum}: EXISTS requires a subquery — use EXISTS (SELECT 1 FROM table WHERE ...)`,
         fix: 'Add subquery: EXISTS (SELECT 1 FROM table WHERE condition)',
       });
+    }
+
+    // ── DROP bare identifier with no object-type keyword: DROP company; / DROP emp_view;
+    // Valid pattern:  DROP TABLE|VIEW|INDEX|SCHEMA|DATABASE|FUNCTION|PROCEDURE|TRIGGER ...
+    // Invalid pattern: DROP some_name;  (missing the object-type keyword entirely)
+    if (/^\s*DROP\s+\w+\s*;?\s*$/i.test(stripped)) {
+      const OBJECT_TYPES = /^(TABLE|VIEW|INDEX|SCHEMA|DATABASE|FUNCTION|PROCEDURE|TRIGGER|COLUMN|CONSTRAINT|IF|TEMPORARY|TEMP|UNIQUE|MATERIALIZED|SEQUENCE|TYPE|DOMAIN|ROLE|USER|TABLESPACE|EXTENSION|PUBLICATION|SUBSCRIPTION)$/i;
+      const tokens = stripped.trim().replace(/;$/, '').split(/\s+/);
+      // tokens[0]=DROP, tokens[1]=first word after DROP
+      if (tokens.length === 2 && !OBJECT_TYPES.test(tokens[1])) {
+        errors.push({
+          type: 'error', line: lineNum, language: 'sql',
+          message: `Line ${lineNum}: DROP "${tokens[1]}" is missing the object-type keyword — use DROP TABLE, DROP VIEW, DROP SCHEMA, etc.`,
+          fix: `Specify object type: DROP TABLE ${tokens[1]}  (or DROP VIEW / DROP SCHEMA)`,
+        });
+      }
     }
 
     // ── ALTER TABLE missing COLUMN keyword: ALTER TABLE t DROP bonus
@@ -515,7 +537,8 @@ const checkSQLStatements = (code) => {
   const errors = [];
   const statements = splitIntoStatements(code);
 
-  for (const { stmt, lineStart } of statements) {
+  for (let si = 0; si < statements.length; si++) {
+    const { stmt, lineStart } = statements[si];
     // Always work on comment-stripped text so keywords in comments don't confuse checks
     const clean = stripSQLComments(stmt);
 
@@ -608,6 +631,38 @@ const checkSQLStatements = (code) => {
         });
       }
     }
+
+    // ── Trigger body: BEGIN without matching END
+    if (/\bCREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER\b/i.test(clean)) {
+      const hasBegin   = /\bBEGIN\b/i.test(clean);
+      const hasEnd     = /\bEND\b/i.test(clean);
+      const forEachRow = /\bFOR\s+EACH\s+ROW\b/i.test(clean);
+
+      if (hasBegin && !hasEnd) {
+        // Peek ahead: if the VERY next statement is just "END" the splitter split the trigger — not a real error
+        const nextClean = si + 1 < statements.length
+          ? stripSQLComments(statements[si + 1].stmt).trim()
+          : '';
+        const nextIsEnd = /^END\s*;?\s*$/i.test(nextClean);
+        if (!nextIsEnd) {
+          errors.push({
+            type: 'error', line: lineStart, language: 'sql',
+            message: `Line ~${lineStart}: Trigger body has BEGIN but no matching END — trigger block must be closed with END;`,
+            fix: 'Add END; after the last statement in the trigger body',
+          });
+        }
+      }
+    }
+
+    // ── DROP SCHEMA/DATABASE/TABLE followed immediately by ; (no name) — already caught per-line
+    // but also catch the pattern split across statements: "DROP\nSCHEMA;" etc.
+    if (/^\s*DROP\s*$/i.test(clean.trim())) {
+      errors.push({
+        type: 'error', line: lineStart, language: 'sql',
+        message: `Line ~${lineStart}: Bare DROP with no object type or name`,
+        fix: 'Use: DROP TABLE name, DROP VIEW name, DROP SCHEMA name, etc.',
+      });
+    }
   }
 
   return errors;
@@ -663,6 +718,21 @@ const checkGlobalBalance = (code) => {
     errors.push({
       type: 'warning', language: 'sql',
       message: `More END keywords (${endCount}) than CASE/BEGIN blocks — possible extra END`,
+    });
+  }
+
+  // ── Trigger with multiple statements but no BEGIN/END wrapper
+  // Pattern: FOR EACH ROW <non-BEGIN statement>; <another statement>;
+  // The splitter breaks these into separate stmts so we must scan the raw code.
+  const triggerMultiStmt = /\bFOR\s+EACH\s+ROW\s+(?!BEGIN\b)(\w[^;]+;[^;]+;)/gi;
+  let tmMatch;
+  while ((tmMatch = triggerMultiStmt.exec(code)) !== null) {
+    // Calculate approximate line number
+    const lineNum = (code.slice(0, tmMatch.index).match(/\n/g) || []).length + 1;
+    errors.push({
+      type: 'error', line: lineNum, language: 'sql',
+      message: `Line ~${lineNum}: Multi-statement trigger body without BEGIN ... END — FOR EACH ROW followed by multiple statements requires a BEGIN/END block`,
+      fix: 'Wrap trigger body: FOR EACH ROW BEGIN stmt1; stmt2; END;',
     });
   }
 
