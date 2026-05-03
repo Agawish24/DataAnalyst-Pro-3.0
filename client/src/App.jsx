@@ -45,6 +45,7 @@ import KnowledgeGraph from './pages/KnowledgeGraph';
 import CRMIntegration from './pages/CRMIntegration';
 import VibeCoding from './pages/VibeCoding';
 import AccountSettings from './pages/AccountSettings';
+import ZohoCRM from './pages/ZohoCRM';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -110,6 +111,7 @@ const AppRoutes = () => {
       <Route path="/streaming" element={wrap(StreamingDashboard)} />
       <Route path="/knowledge-graph" element={wrap(KnowledgeGraph)} />
       <Route path="/crm" element={wrap(CRMIntegration)} />
+      <Route path="/zoho" element={wrap(ZohoCRM)} />
       <Route path="/vibe-coding" element={wrap(VibeCoding)} />
       <Route path="/account" element={wrap(AccountSettings)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />

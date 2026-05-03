@@ -9,6 +9,7 @@ const PYTHON = '/api/analytics';
 export default function PrescriptiveAnalytics() {
   const { selectedDataset } = useData();
   const [columns, setColumns] = useState([]);
+  const [numericCols, setNumericCols] = useState([]);
   const [targetCol, setTargetCol] = useState('');
   const [featureCols, setFeatureCols] = useState([]);
   const [optimizeFor, setOptimizeFor] = useState('maximize');
@@ -38,11 +39,17 @@ export default function PrescriptiveAnalytics() {
       ).map(([n]) => n);
       if (dateCols[0]) setDateCol(dateCols[0]);
 
-      const numCols = schemaEntries.filter(([n, t]) =>
-        String(t).toLowerCase().includes('numeric') || String(t).toLowerCase().includes('integer') ||
-        String(t).toLowerCase().includes('float') || String(t).toLowerCase().includes('double') ||
-        /price|sales|revenue|profit|amount|count|value|score|rating|age|size|spend|tickets|logins|features|nps|tenure/i.test(n)
-      ).map(([n]) => n);
+      // Numeric columns: by schema type OR by common numeric column name patterns
+      const numCols = schemaEntries.filter(([n, t]) => {
+        const tl = String(t).toLowerCase();
+        return tl.includes('numeric') || tl.includes('integer') || tl.includes('int') ||
+               tl.includes('float') || tl.includes('double') || tl.includes('decimal') ||
+               tl.includes('real') || tl.includes('bigint') || tl.includes('smallint') ||
+               tl.includes('number') || tl.includes('money') ||
+               /price|sales|revenue|profit|amount|count|value|score|rating|age|size|spend|tickets|logins|nps|tenure|qty|quantity|total|cost|fee|salary|weight|height|lat|lon|rank|index|num|id$/i.test(n);
+      }).map(([n]) => n);
+
+      setNumericCols(numCols);
       if (numCols[0]) setTargetCol(numCols[0]);
       setFeatureCols(numCols.slice(1, 6));
     }).catch(() => {});
@@ -142,12 +149,15 @@ export default function PrescriptiveAnalytics() {
                 <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
                   <h3 style={{ color: '#f3f4f6', fontWeight: 600, marginBottom: 16 }}>Configure</h3>
                   <div style={{ marginBottom: 14 }}>
-                    <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Target Metric to Optimize</label>
+                    <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Target Metric to Optimize <span style={{ color: '#4b5563' }}>(numeric only)</span></label>
                     <select value={targetCol} onChange={e => setTargetCol(e.target.value)}
                       style={{ width: '100%', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#f3f4f6', fontSize: 14 }}>
-                      <option value="">— Select column —</option>
-                      {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                      <option value="">— Select numeric column —</option>
+                      {(numericCols.length > 0 ? numericCols : columns).map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                    {numericCols.length === 0 && columns.length > 0 && (
+                      <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 4 }}>⚠ No numeric columns detected — optimization needs a number column</div>
+                    )}
                   </div>
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Optimization Goal</label>
@@ -162,14 +172,17 @@ export default function PrescriptiveAnalytics() {
                     </div>
                   </div>
                   <div style={{ marginBottom: 16 }}>
-                    <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Feature Variables (multi-select)</label>
+                    <label style={{ color: '#9ca3af', fontSize: 12, display: 'block', marginBottom: 6 }}>Feature Variables <span style={{ color: '#4b5563' }}>(numeric only)</span></label>
                     <div style={{ maxHeight: 160, overflowY: 'auto', background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 8 }}>
-                      {columns.filter(c => c !== targetCol).map(c => (
+                      {(numericCols.length > 0 ? numericCols : columns).filter(c => c !== targetCol).map(c => (
                         <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', cursor: 'pointer', borderRadius: 6 }}>
                           <input type="checkbox" checked={featureCols.includes(c)} onChange={e => setFeatureCols(prev => e.target.checked ? [...prev, c] : prev.filter(x => x !== c))} style={{ accentColor: '#6366f1' }} />
                           <span style={{ color: '#d1d5db', fontSize: 13 }}>{c}</span>
                         </label>
                       ))}
+                      {(numericCols.length > 0 ? numericCols : columns).filter(c => c !== targetCol).length === 0 && (
+                        <div style={{ color: '#4b5563', fontSize: 12, padding: 6 }}>No numeric feature columns available</div>
+                      )}
                     </div>
                   </div>
                   <button onClick={runPrescriptive} disabled={loading || !targetCol}

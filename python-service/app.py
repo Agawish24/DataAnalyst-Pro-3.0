@@ -432,17 +432,36 @@ def prescriptive():
         if target_col not in df.columns:
             return jsonify({'error': f'Column {target_col} not found'}), 400
 
+        # Coerce target to numeric — give a clear error if it's a text column
+        df[target_col] = pd.to_numeric(df[target_col], errors='coerce')
+        if df[target_col].isna().all():
+            return jsonify({
+                'error': f'"{target_col}" is a text column and cannot be optimized. '
+                         'Please select a numeric column (e.g. revenue, price, count).'
+            }), 400
+
         numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != target_col]
-        if not feature_cols:
+
+        # Keep only user-selected columns that actually exist AND are numeric
+        if feature_cols:
+            # Try coercing user-selected cols; keep ones that become numeric
+            coerced = []
+            for c in feature_cols:
+                if c in df.columns and c != target_col:
+                    df[c] = pd.to_numeric(df[c], errors='coerce')
+                    if not df[c].isna().all():
+                        coerced.append(c)
+            feature_cols = coerced if coerced else numeric_cols[:8]
+        else:
             feature_cols = numeric_cols[:8]
 
-        feature_cols = [c for c in feature_cols if c in df.columns]
         if not feature_cols:
-            return jsonify({'error': 'No usable numeric feature columns'}), 400
+            return jsonify({'error': 'No usable numeric feature columns found. '
+                                     'Your dataset needs at least one numeric column besides the target.'}), 400
 
         df_clean = df[feature_cols + [target_col]].dropna()
         if len(df_clean) < 10:
-            return jsonify({'error': 'Insufficient data after cleaning'}), 400
+            return jsonify({'error': 'Insufficient data after cleaning (need ≥ 10 rows with non-null numeric values)'}), 400
 
         X = df_clean[feature_cols]
         y = df_clean[target_col]

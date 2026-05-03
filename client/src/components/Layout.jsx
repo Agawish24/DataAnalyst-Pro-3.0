@@ -29,6 +29,7 @@ const navGroups = [
       { path: '/connectors', icon: Plug, label: 'DB Connectors', labelAr: 'موصلات قواعد البيانات' },
       { path: '/integrations', icon: Globe, label: 'Integrations', labelAr: 'التكاملات' },
       { path: '/crm', icon: Building2, label: 'CRM Integration', labelAr: 'تكامل CRM' },
+      { path: '/zoho', icon: Globe, label: 'Zoho CRM', labelAr: 'زوهو CRM' },
       { path: '/masking', icon: EyeOff, label: 'Data Masking', labelAr: 'إخفاء البيانات' },
       { path: '/lineage', icon: Network, label: 'Data Lineage', labelAr: 'سلسلة البيانات' },
       { path: '/knowledge-graph', icon: Layers, label: 'Knowledge Graph', labelAr: 'مخطط المعرفة' },

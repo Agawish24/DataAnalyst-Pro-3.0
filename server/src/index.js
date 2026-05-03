@@ -49,6 +49,7 @@ const narrativesRouter = require('./routes/narratives');
 const crmRouter = require('./routes/crm');
 const vibeCodingRouter = require('./routes/vibeCoding');
 const visualizationRouter = require('./routes/visualization');
+const zohoRouter = require('./routes/zoho');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -107,6 +108,7 @@ app.use('/api/narratives', narrativesRouter);
 app.use('/api/crm', crmRouter);
 app.use('/api/vibe-coding', vibeCodingRouter);
 app.use('/api/visualization', visualizationRouter);
+app.use('/api/zoho', zohoRouter);
 
 // ── Inline routes for missing top-level resources ─────────────────────────────
 
