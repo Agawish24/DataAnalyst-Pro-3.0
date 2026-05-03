@@ -8,7 +8,7 @@ import {
   MessageSquare, GitMerge, ChefHat, FileText, Bell,
   Shield, BookOpen, Sparkles, TrendingUp, Sliders, Target, Key,
   Code, Languages, Plug, Building2, EyeOff, Webhook, Network,
-  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity
+  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity, Zap
 } from 'lucide-react';
 
 const navGroups = [
@@ -94,6 +94,7 @@ const navGroups = [
     label: 'Developer',
     labelAr: 'المطور',
     items: [
+      { path: '/vibe-coding', icon: Zap, label: 'Vibe Coding', labelAr: 'البرمجة الذكية' },
       { path: '/external-api', icon: Key, label: 'External API', labelAr: 'واجهة برمجية خارجية' },
       { path: '/2fa', icon: Lock, label: '2FA Security', labelAr: 'المصادقة الثنائية' },
     ]

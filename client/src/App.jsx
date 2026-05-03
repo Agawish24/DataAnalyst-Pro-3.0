@@ -43,6 +43,7 @@ import Integrations from './pages/Integrations';
 import StreamingDashboard from './pages/StreamingDashboard';
 import KnowledgeGraph from './pages/KnowledgeGraph';
 import CRMIntegration from './pages/CRMIntegration';
+import VibeCoding from './pages/VibeCoding';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -108,6 +109,7 @@ const AppRoutes = () => {
       <Route path="/streaming" element={wrap(StreamingDashboard)} />
       <Route path="/knowledge-graph" element={wrap(KnowledgeGraph)} />
       <Route path="/crm" element={wrap(CRMIntegration)} />
+      <Route path="/vibe-coding" element={wrap(VibeCoding)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );
