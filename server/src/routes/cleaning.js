@@ -1,7 +1,11 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
-const { removeDuplicates, fillMissingValues, dropMissingRows, normalizeColumn, trimStrings, renameColumns, getDataQuality } = require('../helpers/dataClean');
+const {
+  removeDuplicates, fillMissingValues, dropMissingRows, normalizeColumn,
+  trimStrings, renameColumns, removeOutliers, convertType, standardizeCategories,
+  labelEncode, cleanText, validateConstraint, getDataQuality,
+} = require('../helpers/dataClean');
 
 const router = express.Router();
 
@@ -43,6 +47,12 @@ router.post('/:datasetId/apply', authenticate, async (req, res) => {
       case 'normalize': rows = normalizeColumn(rows, parameters.column, parameters.method || 'minmax'); break;
       case 'trim_strings': rows = trimStrings(rows); break;
       case 'rename_columns': rows = renameColumns(rows, parameters.mapping || {}); break;
+      case 'remove_outliers': rows = removeOutliers(rows, parameters.column, parseFloat(parameters.threshold) || 3); break;
+      case 'convert_type': rows = convertType(rows, parameters.column, parameters.targetType || 'text'); break;
+      case 'standardize_categories': rows = standardizeCategories(rows, parameters.column, parameters.caseMode || 'title', parameters.mapping || {}); break;
+      case 'label_encode': rows = labelEncode(rows, parameters.column); break;
+      case 'clean_text': rows = cleanText(rows, parameters.column, { lowercase: parameters.lowercase !== false, removePunctuation: parameters.removePunctuation !== false }); break;
+      case 'validate_constraint': rows = validateConstraint(rows, parameters.column, parameters.operator || '>=', parameters.value, parameters.action || 'remove'); break;
       default: return res.status(400).json({ error: 'Unknown operation' });
     }
 
@@ -69,6 +79,13 @@ router.post('/:datasetId/preview', authenticate, async (req, res) => {
       case 'drop_missing_rows': rows = dropMissingRows(rows, parameters.columns || []); break;
       case 'normalize': rows = normalizeColumn(rows, parameters.column, parameters.method || 'minmax'); break;
       case 'trim_strings': rows = trimStrings(rows); break;
+      case 'rename_columns': rows = renameColumns(rows, parameters.mapping || {}); break;
+      case 'remove_outliers': rows = removeOutliers(rows, parameters.column, parseFloat(parameters.threshold) || 3); break;
+      case 'convert_type': rows = convertType(rows, parameters.column, parameters.targetType || 'text'); break;
+      case 'standardize_categories': rows = standardizeCategories(rows, parameters.column, parameters.caseMode || 'title', parameters.mapping || {}); break;
+      case 'label_encode': rows = labelEncode(rows, parameters.column); break;
+      case 'clean_text': rows = cleanText(rows, parameters.column, { lowercase: parameters.lowercase !== false, removePunctuation: parameters.removePunctuation !== false }); break;
+      case 'validate_constraint': rows = validateConstraint(rows, parameters.column, parameters.operator || '>=', parameters.value, parameters.action || 'remove'); break;
       default: return res.status(400).json({ error: 'Unknown operation' });
     }
     res.json({ before, after: rows.length, removed: before - rows.length, preview: rows.slice(0, 10) });
