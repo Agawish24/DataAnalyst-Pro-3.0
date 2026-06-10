@@ -31,12 +31,12 @@ router.post('/', authenticate, async (req, res) => {
 
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const { name, config, schedule_cron, schedule_description, status } = req.body;
+    const { name, config, schedule_cron, schedule_description } = req.body;
     const result = await pool.query(
       `UPDATE jobs SET name=COALESCE($1,name), config=COALESCE($2,config), schedule_cron=COALESCE($3,schedule_cron),
-       schedule_description=COALESCE($4,schedule_description), status=COALESCE($5,status), updated_at=NOW()
-       WHERE id=$6 AND created_by=$7 RETURNING *`,
-      [name, config ? JSON.stringify(config) : null, schedule_cron, schedule_description, status, req.params.id, req.user.id]
+       schedule_description=COALESCE($4,schedule_description)
+       WHERE id=$5 AND created_by=$6 RETURNING *`,
+      [name, config ? JSON.stringify(config) : null, schedule_cron, schedule_description, req.params.id, req.user.id]
     );
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

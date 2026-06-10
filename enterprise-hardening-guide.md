@@ -1,7 +1,7 @@
 # DataAnalyst-Pro → Enterprise Hardening Guide
 
 > **Status as of 2026-06-10**: All Priority 1 + Priority 2 security/architecture fixes applied and verified.
-> Live test suite: **72/72 endpoints passing (100%)** across all feature modules.
+> Live test suite: **88/88 endpoints passing (100%)** across all feature modules.
 
 ---
 
@@ -31,8 +31,8 @@
 | Streaming backpressure | `if (!res.writable) clearInterval + res.end()` | ✅ Applied |
 | Python client scattered | Centralised `server/src/utils/pythonClient.js` (`pyPost`/`pyGet`) | ✅ Applied |
 | analytics/automl/scenarios duplicated Python calls | All migrated to `pythonClient.js` | ✅ Applied |
-| No connection pooling for external DBs | Pools stored in Map keyed by connector ID | ⬜ Future |
-| No transaction wrapping | Wrap dataset creation in BEGIN/COMMIT | ⬜ Future |
+| No connection pooling for external DBs | `pgPoolCache` + `mysqlPoolCache` Maps in connectors.js; evicted on delete/update | ✅ Applied |
+| No transaction wrapping for dataset upload | `BEGIN/COMMIT` client wraps INSERT + CREATE TABLE + batch inserts; `ROLLBACK` on failure | ✅ Applied |
 
 ---
 
@@ -73,7 +73,7 @@
 
 ## Schema Fixes Applied (DB Column Mismatches)
 
-During live testing, 14 route files had schema mismatches against the actual Neon DB. All fixed:
+During live testing, 16 route files had schema mismatches against the actual Neon DB. All fixed:
 
 | Route | Fix Applied |
 |-------|-------------|
@@ -89,8 +89,30 @@ During live testing, 14 route files had schema mismatches against the actual Neo
 | `crm.js` | `provider` → `service`; `created_at` → `connected_at` |
 | `ai.js` | `natural_language` → `messages` (JSONB) |
 | `visualization.js` | Graceful fallback when `saved_charts` table absent |
-| `scenarios.js` | `shared`/`updated_at`/`status`/`audit_trail` → actual columns |
-| `scenarios.js` | `last_result` → `results`; `ORDER BY created_at` |
+| `scenarios.js` | `shared`/`updated_at`/`status`/`audit_trail` → actual columns; `last_result` → `results` |
+| `queries.js` | `result`/`status`/`error_message` → `result_rows`; dropped non-existent cols |
+| `cleaning.js` | `result_summary` → `rows_before`/`rows_after`/`status`/`error_message` |
+| `jobs.js` | Removed `status`/`updated_at` from UPDATE (columns don't exist) |
+| `automl.js` | `all_scores`/`hyperparams`/`status` → `results` (JSONB); `feature_cols` passed as `text[]` array (not JSON string) |
+
+---
+
+## Enhanced Syntax Checker (checker.py)
+
+`python-service/checker.py` — deep semantic rule engine called from `POST /api/syntax-helper/analyze`.  
+Merged into syntax helper results as `deepErrors` count.
+
+**SQL rules**: INSERT column/value count mismatch, empty `IN()` list, negative `LIMIT`, `SELECT *` in subquery, `BETWEEN` without `AND`, unbalanced quotes, `!=` instead of `<>`.
+
+**Python rules**: default argument before positional (`def f(x=1, y)`), wrong builtins (`len` on non-iterable, `range` with wrong arg count), empty `lambda:`, `raise` without exception class, `await`/`yield` outside async/generator scope, `print` as statement (Python 2 style).
+
+**R rules**: `mean()`/`sum()`/`sd()` called with multiple comma args instead of `c()`, `T`/`F` instead of `TRUE`/`FALSE`, missing parens on function calls, `<-` used inside function argument.
+
+---
+
+## DB Connectors — ENOTFOUND Error Handling
+
+`connectors.js` — `testConnection()` detects `ENOTFOUND`/`ECONNREFUSED`/`ETIMEDOUT` and returns a user-friendly error message instead of exposing raw Node.js error strings. The frontend `DBConnectors.jsx` surfaces this cleanly in a toast.
 
 ---
 
@@ -116,43 +138,45 @@ Set these in the Replit Secrets panel before seeding or deploying:
 
 ---
 
-## Live Test Results — 2026-06-10
+## Live Test Results — 2026-06-10 (Final)
 
-**Suite**: 72 endpoints across all feature modules  
-**Result**: **72 passed / 0 failed (100%)**
+**Suite**: 88 endpoints across all feature modules  
+**Result**: **88 passed / 0 failed (100%)**
 
 | Module | Endpoints Tested | Result |
 |--------|-----------------|--------|
-| Core (health, auth) | 4 | ✅ 4/4 |
-| Datasets | 4 | ✅ 4/4 |
-| Processing (recipes, catalog, pipelines, profiling, versions, cleaning, queries) | 7 | ✅ 7/7 |
-| Analytics (outliers, regression, clustering, forecast) | 4 | ✅ 4/4 |
+| Core (health, ready, auth) | 3 | ✅ 3/3 |
+| Datasets (list, summary, data, export) | 4 | ✅ 4/4 |
+| Processing (recipes, catalog, pipelines, profiling, versions, cleaning, queries) | 9 | ✅ 9/9 |
+| SQL Editor (execute, tables) | 2 | ✅ 2/2 |
+| Analytics (outliers, regression, clustering, forecast, AutoML ×2) | 6 | ✅ 6/6 |
 | Intelligence (narratives, business questions, reports, dashboards, AI chat) | 7 | ✅ 7/7 |
-| SQL / NL (nl-to-sql, syntax helper) | 5 | ✅ 5/5 |
-| Visualization (pivot, charts, aggregate) | 4 | ✅ 4/4 |
+| NL-SQL + Syntax Helper (nl-query, nl-convert, nl-examples, nl-history, syntax ×3 languages, syntax-history, templates ×3) | 11 | ✅ 11/11 |
+| Visualization (pivot, saved, charts, aggregate) | 4 | ✅ 4/4 |
 | Geo & Streaming | 4 | ✅ 4/4 |
-| Enterprise (masking, webhooks, workspaces, connectors, lineage, knowledge graph, annotations, 2FA, AutoML, PDF, external API) | 14 | ✅ 14/14 |
+| Enterprise (masking ×4, webhooks, workspaces, connectors ×2, lineage ×2, knowledge-graph, annotations, 2FA, PDF, external API) | 15 | ✅ 15/15 |
 | Audit / Governance | 4 | ✅ 4/4 |
-| Jobs & Alerts | 4 | ✅ 4/4 |
-| Collaboration | 3 | ✅ 3/3 |
-| CRM | 4 | ✅ 4/4 |
-| Other (scenarios, business questions, lineage nodes/edges, masking preview, export) | 7 | ✅ 7/7 |
+| Jobs & Alerts (jobs, alerts-list, alerts, cache, POST job) | 5 | ✅ 5/5 |
+| Collaboration (comments, POST comment, activity) | 3 | ✅ 3/3 |
+| CRM (connections, contacts, hubspot, zoho) | 4 | ✅ 4/4 |
+| Scenarios | 2 | ✅ 2/2 |
+| Other (business-questions list, lineage nodes/edges, catalog ds, export, PDF generate, NL convert) | 7 | ✅ 7/7 |
 
 ---
 
-## Files Modified
+## Files Modified (This Session)
 
-### Security / Architecture Hardening
+### Security / Architecture Hardening (Session 1)
 - `server/src/index.js` — CORS, rate limits, /health, /ready, graceful shutdown
 - `server/src/routes/auth.js` — Removed duplicate /api/users route
 - `server/src/routes/crm.js` — Salesforce env var credentials
 - `server/src/routes/webhooks.js` — HMAC-SHA256 signing
 - `server/src/routes/streaming.js` — Backpressure check
 - `server/src/utils/pythonClient.js` — Centralised Python client (new file)
-- `python-service/app.py` — X-API-Key validation
+- `python-service/app.py` — X-API-Key validation + `/check-syntax` route
 - `server/neon_init.js` — SEED_* env vars, no fallback credentials
 
-### Schema Fixes
+### Schema Fixes (Session 1 + 2)
 - `server/src/routes/recipes.js`
 - `server/src/routes/catalog.js`
 - `server/src/routes/pipelines.js`
@@ -166,3 +190,15 @@ Set these in the Replit Secrets panel before seeding or deploying:
 - `server/src/routes/ai.js`
 - `server/src/routes/visualization.js`
 - `server/src/routes/scenarios.js`
+- `server/src/routes/queries.js` — `result`/`status` → `result_rows`
+- `server/src/routes/cleaning.js` — `result_summary` → `rows_before`/`rows_after`/`status`
+- `server/src/routes/jobs.js` — Removed `status`/`updated_at` from UPDATE
+- `server/src/routes/automl.js` — Fixed INSERT columns + `feature_cols` as `text[]`
+
+### Architecture Hardening (Session 2)
+- `server/src/routes/connectors.js` — Pool cache Map (pg + mysql), eviction on delete/update; user-friendly ENOTFOUND errors
+- `server/src/routes/datasets.js` — Transaction wrapper (BEGIN/COMMIT/ROLLBACK) for upload
+
+### New Files (Session 2)
+- `python-service/checker.py` — Deep semantic rule engine for SQL, Python, R
+- `server/src/routes/syntaxHelper.js` — Wired to checker.py; `deepErrors` merged into response

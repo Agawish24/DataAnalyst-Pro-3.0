@@ -8,6 +8,46 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Connection pool cache — reuse pools across requests, keyed by connector ID
+// ═══════════════════════════════════════════════════════════════════════════
+const pgPoolCache  = new Map(); // connectorId → PgPool
+const mysqlPoolCache = new Map(); // connectorId → mysql2 Pool
+
+const getPgPool = (connectorId, config) => {
+  if (pgPoolCache.has(connectorId)) return pgPoolCache.get(connectorId);
+  const pg = new PgPool({
+    connectionString: config.connectionString ||
+      `postgresql://${config.user}:${config.password}@${config.host}:${config.port || 5432}/${config.database}`,
+    ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  });
+  pgPoolCache.set(connectorId, pg);
+  return pg;
+};
+
+const getMysqlPool = (connectorId, config) => {
+  if (mysqlPoolCache.has(connectorId)) return mysqlPoolCache.get(connectorId);
+  const mysql = require('mysql2/promise');
+  const p = mysql.createPool({
+    host: config.host, port: config.port || 3306,
+    user: config.user, password: config.password, database: config.database,
+    waitForConnections: true, connectionLimit: 5, connectTimeout: 5000,
+  });
+  mysqlPoolCache.set(connectorId, p);
+  return p;
+};
+
+// Evict cached pool when connector is deleted or updated
+const evictPool = (connectorId) => {
+  const pg = pgPoolCache.get(connectorId);
+  if (pg) { pg.end().catch(() => {}); pgPoolCache.delete(connectorId); }
+  const my = mysqlPoolCache.get(connectorId);
+  if (my) { my.end().catch(() => {}); mysqlPoolCache.delete(connectorId); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DEMO MODE — realistic sample data per connector type
 // ═══════════════════════════════════════════════════════════════════════════
 const DEMO_SCHEMAS = {
@@ -265,21 +305,19 @@ const queryConnector = async (connector, sql) => {
     throw new Error('Only SELECT / WITH / SHOW / DESCRIBE queries allowed on external connectors');
 
   if (type === 'postgresql' || type === 'postgres') {
-    const pg = new PgPool({ connectionString: config.connectionString || `postgresql://${config.user}:${config.password}@${config.host}:${config.port || 5432}/${config.database}`, ssl: config.ssl ? { rejectUnauthorized: false } : false });
-    try { const r = await pg.query(sql); await pg.end(); return r.rows; }
-    catch (e) { await pg.end().catch(() => {}); throw e; }
+    const pg = getPgPool(connector.id, config);
+    const r = await pg.query(sql);
+    return r.rows;
   }
   if (type === 'mysql') {
-    const mysql = require('mysql2/promise');
-    const conn = await mysql.createConnection({ host: config.host, port: config.port || 3306, user: config.user, password: config.password, database: config.database });
-    const [rows] = await conn.execute(sql);
-    await conn.end();
+    const mysqlPool = getMysqlPool(connector.id, config);
+    const [rows] = await mysqlPool.execute(sql);
     return rows;
   }
   if (type === 'redshift') {
-    const pg = new PgPool({ host: config.host, port: config.port || 5439, database: config.database, user: config.user, password: config.password, ssl: { rejectUnauthorized: false } });
-    try { const r = await pg.query(sql); await pg.end(); return r.rows; }
-    catch (e) { await pg.end().catch(() => {}); throw e; }
+    const pg = getPgPool(`redshift_${connector.id}`, { ...config, port: config.port || 5439 });
+    const r = await pg.query(sql);
+    return r.rows;
   }
   if (type === 'bigquery') {
     const token = await getBigQueryToken(config.keyFileContent);
@@ -334,6 +372,7 @@ router.patch('/:id/demo', authenticate, async (req, res) => {
     const newConfig = { ...(r.rows[0].config || {}), demo: !!enable };
     const newStatus = enable ? 'active' : 'error';
     await pool.query('UPDATE connectors SET config=$1, status=$2, last_tested=NOW() WHERE id=$3', [JSON.stringify(newConfig), newStatus, req.params.id]);
+    evictPool(req.params.id); // config changed — evict stale pool
     res.json({ success: true, demo_mode: !!enable });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -405,8 +444,10 @@ router.get('/:id/schema', authenticate, async (req, res) => {
       }))
     });
   } catch (err) {
-    const connErr = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code) || err.message?.includes('timeout');
-    if (connErr) return res.json({ connector: 'Unknown', tables: [], error: err.message });
+    const connErr = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTOPEN'].includes(err.code)
+      || err.message?.includes('timeout') || err.message?.includes('ENOTFOUND')
+      || err.message?.includes('ECONNREFUSED') || err.message?.includes('ETIMEDOUT');
+    if (connErr) return res.json({ connector: 'Unknown', tables: [], error: `Cannot reach host: ${err.message.split(' ').pop()}. Enable Demo Mode to explore sample data.` });
     res.status(500).json({ error: err.message });
   }
 });
@@ -415,6 +456,7 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const r = await pool.query('DELETE FROM connectors WHERE id=$1 AND created_by=$2 RETURNING id', [req.params.id, req.user.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    evictPool(req.params.id);
     res.json({ message: 'Connector deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

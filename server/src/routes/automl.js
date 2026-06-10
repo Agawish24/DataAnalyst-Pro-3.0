@@ -109,11 +109,10 @@ router.post('/:datasetId/run', authenticate, async (req, res) => {
 
     const [saved] = await Promise.all([
       pool.query(
-        `INSERT INTO automl_runs (dataset_id, target_col, feature_cols, task_type, best_model, best_score, all_scores, hyperparams, status, user_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [req.params.datasetId, target_col, JSON.stringify(feature_cols || []), detectedTask,
-         mlData.best_model, mlData.best_score,
-         JSON.stringify(mlData.all_scores || {}), JSON.stringify({}), 'completed', req.user.id]
+        `INSERT INTO automl_runs (user_id, dataset_id, target_col, feature_cols, task_type, best_model, best_score, results)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [req.user.id, req.params.datasetId, target_col, feature_cols || [], detectedTask,
+         mlData.best_model, mlData.best_score, JSON.stringify(mlData)]
       ),
       pool.query(
         `INSERT INTO lineage (dataset_id, event_type, actor, metadata) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,

@@ -56,25 +56,41 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
     });
 
     const datasetName = req.body.name || path.basename(originalname, ext);
-    const result = await pool.query(
-      `INSERT INTO datasets (name, source, original_filename, schema, row_count, column_count, file_size, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [datasetName, ext.replace('.', '').toUpperCase(), originalname, JSON.stringify(schema), rows.length, Object.keys(rows[0]).length, size, req.user.id]
-    );
 
-    const dataset = result.rows[0];
-    // Store data in a JSONB column (create data table per dataset)
-    const tableName = `data_${dataset.id}`;
-    const cols = Object.keys(rows[0]);
-    const colDefs = cols.map(c => `"${c.replace(/"/g,'')}" TEXT`).join(', ');
-    await pool.query(`CREATE TABLE IF NOT EXISTS ${tableName} (row_index SERIAL, ${colDefs})`);
-    // Insert in batches
-    const batchSize = 500;
-    for (let i = 0; i < rows.length; i += batchSize) {
-      const batch = rows.slice(i, i + batchSize);
-      const vals = batch.map((row, bi) => `(${cols.map((c, ci) => `$${bi * cols.length + ci + 1}`).join(',')})`).join(',');
-      const params = batch.flatMap(row => cols.map(c => String(row[c] ?? '')));
-      await pool.query(`INSERT INTO ${tableName} (${cols.map(c=>`"${c.replace(/"/g,'')}"`).join(',')}) VALUES ${vals}`, params);
+    // Wrap dataset creation in a transaction — rollback if data insert fails
+    const client = await pool.connect();
+    let dataset;
+    try {
+      await client.query('BEGIN');
+
+      const result = await client.query(
+        `INSERT INTO datasets (name, source, original_filename, schema, row_count, column_count, file_size, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [datasetName, ext.replace('.', '').toUpperCase(), originalname, JSON.stringify(schema), rows.length, Object.keys(rows[0]).length, size, req.user.id]
+      );
+      dataset = result.rows[0];
+
+      // Create per-dataset data table inside the same transaction
+      const tableName = `data_${dataset.id}`;
+      const cols = Object.keys(rows[0]);
+      const colDefs = cols.map(c => `"${c.replace(/"/g,'')}" TEXT`).join(', ');
+      await client.query(`CREATE TABLE IF NOT EXISTS ${tableName} (row_index SERIAL, ${colDefs})`);
+
+      // Insert in batches of 500 rows
+      const batchSize = 500;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        const vals = batch.map((row, bi) => `(${cols.map((c, ci) => `$${bi * cols.length + ci + 1}`).join(',')})`).join(',');
+        const params = batch.flatMap(row => cols.map(c => String(row[c] ?? '')));
+        await client.query(`INSERT INTO ${tableName} (${cols.map(c=>`"${c.replace(/"/g,'')}"`).join(',')}) VALUES ${vals}`, params);
+      }
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
     }
 
     fs.unlinkSync(filePath);

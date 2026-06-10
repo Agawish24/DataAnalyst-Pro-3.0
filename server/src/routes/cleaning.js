@@ -58,8 +58,8 @@ router.post('/:datasetId/apply', authenticate, async (req, res) => {
 
     await saveCleanedRows(datasetId, rows);
     await pool.query(
-      'INSERT INTO data_cleaning_jobs (dataset_id, operation, parameters, status, result_summary, created_by) VALUES ($1,$2,$3,$4,$5,$6)',
-      [datasetId, operation, JSON.stringify(parameters), 'success', JSON.stringify({ before, after: rows.length, removed: before - rows.length }), req.user.id]
+      'INSERT INTO data_cleaning_jobs (dataset_id, operation, parameters, rows_before, rows_after, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [datasetId, operation, JSON.stringify(parameters), before, rows.length, 'success', req.user.id]
     );
     res.json({ message: 'Cleaning applied', before, after: rows.length, removed: before - rows.length, preview: rows.slice(0, 5) });
   } catch (err) {

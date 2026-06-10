@@ -1084,5 +1084,21 @@ def anomaly_multi_method():
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+@app.route('/check-syntax', methods=['POST'])
+def check_syntax():
+    try:
+        from checker import run_checks
+        body = request.get_json() or {}
+        language = body.get('language', 'sql')
+        code = body.get('code', '')
+        if not code:
+            return jsonify({'errors': [], 'count': 0})
+        errors = run_checks(language, code)
+        return jsonify({'errors': errors, 'count': len(errors), 'language': language})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)

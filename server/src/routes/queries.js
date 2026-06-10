@@ -79,15 +79,8 @@ const executeSQL = async (req, res) => {
     const executionTime = Date.now() - start;
 
     await pool.query(
-      'INSERT INTO queries (dataset_id, user_id, sql_text, result, execution_time_ms, status) VALUES ($1,$2,$3,$4,$5,$6)',
-      [
-        datasetId || null,
-        req.user.id,
-        sql,
-        JSON.stringify({ rows: result.rows.slice(0, 1000), rowCount: result.rowCount }),
-        executionTime,
-        'success',
-      ]
+      'INSERT INTO queries (dataset_id, user_id, sql_text, result_rows, execution_time_ms) VALUES ($1,$2,$3,$4,$5)',
+      [datasetId || null, req.user.id, sql, result.rowCount || 0, executionTime]
     );
 
     res.json({
@@ -100,8 +93,8 @@ const executeSQL = async (req, res) => {
   } catch (err) {
     if (req.body.datasetId) {
       await pool.query(
-        'INSERT INTO queries (dataset_id, user_id, sql_text, status, error_message) VALUES ($1,$2,$3,$4,$5)',
-        [req.body.datasetId, req.user.id, req.body.sql, 'error', err.message]
+        'INSERT INTO queries (dataset_id, user_id, sql_text, result_rows, execution_time_ms) VALUES ($1,$2,$3,$4,$5)',
+        [req.body.datasetId, req.user.id, req.body.sql, 0, 0]
       ).catch(() => {});
     }
     res.status(400).json({ error: err.message });

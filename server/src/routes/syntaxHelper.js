@@ -2805,33 +2805,47 @@ router.post('/analyze', authenticate, async (req, res) => {
     const { code, language = 'sql', useAI = false } = req.body;
     if (!code) return res.status(400).json({ error: 'code is required' });
 
-    let result;
     const lang = language.toLowerCase();
+    let result;
     if (lang === 'sql') result = analyzeSQL(code);
     else if (lang === 'python' || lang === 'py') result = analyzePython(code);
     else if (lang === 'r') result = analyzeR(code);
     else return res.status(400).json({ error: 'Language must be sql, python, or r' });
 
-    // If there are errors and AI is requested (or GROQ key is available), get AI fix
+    // Deep semantic check via Python checker service
+    let deepErrors = [];
+    try {
+      const { pyPost } = require('../utils/pythonClient');
+      const deepRes = await pyPost('/check-syntax', { language: lang, code });
+      deepErrors = (deepRes.data?.errors || []).filter(e => {
+        // Deduplicate: skip if same line already has an error from static analysis
+        return !result.errors.some(existing => existing.line === e.line && existing.message === e.message);
+      });
+    } catch { /* Python service unavailable — static analysis still works */ }
+
+    const allErrors = [...result.errors, ...deepErrors];
+
+    // AI fix if errors exist and GROQ key is available
     let aiFixedCode = null;
     const hasGroq = !!process.env.GROQ_API_KEY;
-    if (result.errors.length > 0 && (useAI || hasGroq)) {
-      aiFixedCode = await groqAIFix(code, lang, result.errors);
+    if (allErrors.length > 0 && (useAI || hasGroq)) {
+      aiFixedCode = await groqAIFix(code, lang, allErrors);
     }
 
     await pool.query(
-      'INSERT INTO syntax_sessions (language, code, errors, suggestions, fixed_code, user_id) VALUES ($1,$2,$3,$4,$5,$6)',
-      [lang, code.slice(0, 5000), JSON.stringify(result.errors), JSON.stringify(result.suggestions), result.fixed || aiFixedCode, req.user.id]
+      'INSERT INTO syntax_sessions (user_id, language, code, errors, fixes) VALUES ($1,$2,$3,$4,$5)',
+      [req.user.id, lang, code.slice(0, 5000), JSON.stringify(allErrors), JSON.stringify(result.suggestions || [])]
     ).catch(() => {});
 
     res.json({
       language: lang,
-      errorCount: result.errors.length,
-      errors: result.errors,
+      errorCount: allErrors.length,
+      errors: allErrors,
+      deepErrors: deepErrors.length,
       suggestions: result.suggestions,
       fixedCode: result.fixed,
       aiFixedCode,
-      isClean: result.errors.length === 0,
+      isClean: allErrors.length === 0,
       hasAI: hasGroq,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
