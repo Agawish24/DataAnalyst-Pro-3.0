@@ -45,9 +45,9 @@ router.post('/geojson', authenticate, async (req, res) => {
 
 router.post('/', authenticate, async (req, res) => {
   try {
-    const { name, dataset_id, lat_col, lng_col, value_col, layer_type = 'points', style_config = {} } = req.body;
+    const { name, dataset_id, lat_col, lng_col, value_col, layer_type = 'points' } = req.body;
     if (!name || !dataset_id || !lat_col || !lng_col) return res.status(400).json({ error: 'name, dataset_id, lat_col, lng_col required' });
-    const r = await pool.query('INSERT INTO geo_layers (name, dataset_id, lat_col, lng_col, value_col, layer_type, style_config, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [name, dataset_id, lat_col, lng_col, value_col || null, layer_type, JSON.stringify(style_config), req.user.id]);
+    const r = await pool.query('INSERT INTO geo_layers (name, dataset_id, lat_col, lng_col, value_col, layer_type, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [name, dataset_id, lat_col, lng_col, value_col || null, layer_type, req.user.id]);
     res.status(201).json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -59,8 +59,8 @@ router.delete('/:id/members/:userId', authenticate, async (req, res) => {
 
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const { name, settings, plan } = req.body;
-    const r = await pool.query('UPDATE workspaces SET name=COALESCE($1,name), plan=COALESCE($2,plan), settings=COALESCE($3,settings) WHERE id=$4 AND owner_id=$5 RETURNING *', [name, plan, settings ? JSON.stringify(settings) : null, req.params.id, req.user.id]);
+    const { name, plan } = req.body;
+    const r = await pool.query('UPDATE workspaces SET name=COALESCE($1,name), plan=COALESCE($2,plan) WHERE id=$3 AND owner_id=$4 RETURNING *', [name, plan, req.params.id, req.user.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Not found or not owner' });
     res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

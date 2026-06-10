@@ -31,7 +31,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     await pool.query('DELETE FROM masking_rules WHERE dataset_id=$1 AND column_name=$2', [dataset_id, column_name]);
     const r = await pool.query(
-      'INSERT INTO masking_rules (dataset_id, column_name, mask_type, mask_config, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      'INSERT INTO masking_rules (dataset_id, column_name, mask_type, options, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
       [dataset_id, column_name, mask_type, JSON.stringify(mask_config), req.user.id]
     );
     res.status(201).json(r.rows[0]);
@@ -77,7 +77,7 @@ router.post('/:datasetId', authenticate, async (req, res) => {
     const validTypes = ['email','phone','credit_card','name','partial','hash','redact','nullify','range'];
     if (!validTypes.includes(mask_type)) return res.status(400).json({ error: `mask_type must be one of: ${validTypes.join(', ')}` });
     await pool.query('DELETE FROM masking_rules WHERE dataset_id=$1 AND column_name=$2', [req.params.datasetId, column_name]);
-    const r = await pool.query('INSERT INTO masking_rules (dataset_id, column_name, mask_type, mask_config, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *', [req.params.datasetId, column_name, mask_type, JSON.stringify(mask_config), req.user.id]);
+    const r = await pool.query('INSERT INTO masking_rules (dataset_id, column_name, mask_type, options, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *', [req.params.datasetId, column_name, mask_type, JSON.stringify(mask_config), req.user.id]);
     res.status(201).json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -89,7 +89,7 @@ router.post('/:datasetId/preview', authenticate, async (req, res) => {
     const maskedRows = data.rows.map(row => {
       const masked = { ...row };
       for (const rule of rules.rows) {
-        if (rule.column_name in masked) masked[rule.column_name] = applyMask(masked[rule.column_name], rule.mask_type, rule.mask_config);
+        if (rule.column_name in masked) masked[rule.column_name] = applyMask(masked[rule.column_name], rule.mask_type, rule.options);
       }
       return masked;
     });
