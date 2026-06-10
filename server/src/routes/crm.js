@@ -7,7 +7,7 @@ const router = express.Router();
 const HUB = 'https://api.hubapi.com';
 
 const getCreds = async (userId, provider) => {
-  const r = await pool.query('SELECT credentials FROM crm_connections WHERE user_id=$1 AND provider=$2', [userId, provider]);
+  const r = await pool.query('SELECT credentials FROM crm_connections WHERE user_id=$1 AND service=$2', [userId, provider]);
   return r.rows[0]?.credentials || null;
 };
 
@@ -17,18 +17,18 @@ const hubHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'Content-Type
 router.get('/connections', authenticate, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, provider, created_at,
+      `SELECT id, service, connected_at,
               CASE WHEN credentials IS NOT NULL THEN true ELSE false END as connected
-       FROM crm_connections WHERE user_id=$1 ORDER BY created_at DESC`,
+       FROM crm_connections WHERE user_id=$1 ORDER BY connected_at DESC`,
       [req.user.id]
     );
     // Return status for all known providers even if not connected
     const providers = ['hubspot', 'salesforce', 'zoho'];
-    const connected = new Map(r.rows.map(row => [row.provider, row]));
+    const connected = new Map(r.rows.map(row => [row.service, row]));
     const result = providers.map(p => ({
       provider: p,
       connected: connected.has(p),
-      connectedAt: connected.get(p)?.created_at || null,
+      connectedAt: connected.get(p)?.connected_at || null,
     }));
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -37,13 +37,13 @@ router.get('/connections', authenticate, async (req, res) => {
 router.get('/contacts', authenticate, async (req, res) => {
   try {
     const r = await pool.query(
-      'SELECT provider, created_at FROM crm_connections WHERE user_id=$1',
+      'SELECT service, connected_at FROM crm_connections WHERE user_id=$1',
       [req.user.id]
     );
     res.json({
-      connected: r.rows.map(c => c.provider),
+      connected: r.rows.map(c => c.service),
       message: r.rows.length
-        ? `Connected to: ${r.rows.map(c => c.provider).join(', ')} — use provider-specific endpoints to fetch contacts`
+        ? `Connected to: ${r.rows.map(c => c.service).join(', ')} — use provider-specific endpoints to fetch contacts`
         : 'No CRM connected — use /crm/hubspot/connect, /crm/salesforce/connect, or /crm/zoho/connect',
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -66,7 +66,7 @@ router.post('/hubspot/connect', authenticate, async (req, res) => {
     if (!token) return res.status(400).json({ error: 'Private App token required' });
     const r = await axios.get(`${HUB}/crm/v3/objects/contacts?limit=1`, { headers: hubHeaders(token), timeout: 8000 });
     await pool.query(
-      'INSERT INTO crm_connections (user_id, provider, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, provider) DO UPDATE SET credentials=$3, updated_at=NOW()',
+      'INSERT INTO crm_connections (user_id, service, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, service) DO UPDATE SET credentials=$3, updated_at=NOW()',
       [req.user.id, 'hubspot', JSON.stringify({ token })]
     );
     res.json({ ok: true, message: 'Connected to HubSpot' });
@@ -77,7 +77,7 @@ router.post('/hubspot/connect', authenticate, async (req, res) => {
 
 router.delete('/hubspot/disconnect', authenticate, async (req, res) => {
   try {
-    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND provider=$2', [req.user.id, 'hubspot']);
+    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND service=$2', [req.user.id, 'hubspot']);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -204,8 +204,8 @@ router.post('/salesforce/connect', authenticate, async (req, res) => {
       `${loginUrl}/services/oauth2/token`,
       new URLSearchParams({
         grant_type: 'password',
-        client_id: '3MVG9YDQS5WtC11peRwN9gKxF.W7M_V0tWJ4x0TIqF4C7pnzr3HFD8Sj3WmhKDxYcr.gKzG0A_Yt5K4qL5TS',
-        client_secret: '1234567890ABCDEF',
+        client_id: process.env.SALESFORCE_CLIENT_ID || (() => { throw new Error('SALESFORCE_CLIENT_ID env var not set') })(),
+        client_secret: process.env.SALESFORCE_CLIENT_SECRET || (() => { throw new Error('SALESFORCE_CLIENT_SECRET env var not set') })(),
         username,
         password: password + (securityToken || ''),
       }),
@@ -214,7 +214,7 @@ router.post('/salesforce/connect', authenticate, async (req, res) => {
 
     const { access_token, instance_url } = r.data;
     await pool.query(
-      'INSERT INTO crm_connections (user_id, provider, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, provider) DO UPDATE SET credentials=$3, updated_at=NOW()',
+      'INSERT INTO crm_connections (user_id, service, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, service) DO UPDATE SET credentials=$3, updated_at=NOW()',
       [req.user.id, 'salesforce', JSON.stringify({ accessToken: access_token, instanceUrl: instance_url, username })]
     );
     res.json({ ok: true, instanceUrl: instance_url, username });
@@ -239,7 +239,7 @@ router.post('/salesforce/query', authenticate, async (req, res) => {
 
 router.delete('/salesforce/disconnect', authenticate, async (req, res) => {
   try {
-    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND provider=$2', [req.user.id, 'salesforce']);
+    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND service=$2', [req.user.id, 'salesforce']);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -288,7 +288,7 @@ router.post('/zoho/connect', authenticate, async (req, res) => {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }, timeout: 8000,
     });
     await pool.query(
-      'INSERT INTO crm_connections (user_id, provider, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, provider) DO UPDATE SET credentials=$3, updated_at=NOW()',
+      'INSERT INTO crm_connections (user_id, service, credentials, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id, service) DO UPDATE SET credentials=$3, updated_at=NOW()',
       [req.user.id, 'zoho', JSON.stringify({ clientId, clientSecret, refreshToken, accessToken, dataCenterUrl: dc })]
     );
     res.json({ ok: true, message: 'Connected to Zoho CRM' });
@@ -299,7 +299,7 @@ router.post('/zoho/connect', authenticate, async (req, res) => {
 
 router.delete('/zoho/disconnect', authenticate, async (req, res) => {
   try {
-    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND provider=$2', [req.user.id, 'zoho']);
+    await pool.query('DELETE FROM crm_connections WHERE user_id=$1 AND service=$2', [req.user.id, 'zoho']);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -352,7 +352,7 @@ router.get('/zoho/:module', authenticate, async (req, res) => {
         const creds = await getCreds(req.user.id, 'zoho');
         const newToken = await zohoRefresh(creds);
         await pool.query(
-          'UPDATE crm_connections SET credentials=$1, updated_at=NOW() WHERE user_id=$2 AND provider=$3',
+          'UPDATE crm_connections SET credentials=$1, updated_at=NOW() WHERE user_id=$2 AND service=$3',
           [JSON.stringify({ ...creds, accessToken: newToken }), req.user.id, 'zoho']
         );
         return res.status(401).json({ error: 'Token refreshed — please retry' });

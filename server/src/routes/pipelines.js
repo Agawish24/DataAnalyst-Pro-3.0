@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT p.*, u.name as creator_name FROM pipelines p LEFT JOIN users u ON p.created_by=u.id ORDER BY p.updated_at DESC`
+      `SELECT p.*, u.name as creator_name FROM pipelines p LEFT JOIN users u ON p.created_by=u.id ORDER BY p.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -32,7 +32,7 @@ router.put('/:id', authenticate, async (req, res) => {
     const result = await pool.query(
       `UPDATE pipelines SET name=COALESCE($1,name), description=COALESCE($2,description),
        steps=COALESCE($3,steps), source_config=COALESCE($4,source_config),
-       destination_config=COALESCE($5,destination_config), is_active=COALESCE($6,is_active), updated_at=NOW()
+       destination_config=COALESCE($5,destination_config), is_active=COALESCE($6,is_active)
        WHERE id=$7 AND created_by=$8 RETURNING *`,
       [name, description, steps ? JSON.stringify(steps) : null, source_config ? JSON.stringify(source_config) : null,
        destination_config ? JSON.stringify(destination_config) : null, is_active, req.params.id, req.user.id]

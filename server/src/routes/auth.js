@@ -27,10 +27,11 @@ router.post('/register', async (req, res) => {
     // In production: send verification email with verificationToken
     // For demo: log the token and auto-note in response
     console.log(`[EMAIL VERIFY] Token for ${email}: ${verificationToken}`);
+    const isProd = process.env.NODE_ENV === 'production';
     res.status(201).json({
       token, user,
-      message: 'Account created. In production a verification email would be sent.',
-      verificationToken, // demo only — remove in production
+      message: 'Account created successfully.',
+      ...(isProd ? {} : { verificationToken }), // dev only
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -98,7 +99,8 @@ router.post('/forgot-password', async (req, res) => {
     // In production: send email with link containing token
     // For demo: return the token directly so it can be used in the UI
     console.log(`[PASSWORD RESET] Token for ${email}: ${token}`);
-    res.json({ message: 'Reset instructions sent', resetToken: token }); // demo only
+    const isProd = process.env.NODE_ENV === 'production';
+    res.json({ message: 'Reset instructions sent', ...(isProd ? {} : { resetToken: token }) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -129,14 +131,5 @@ router.get('/users', authenticate, async (req, res) => {
   }
 });
 
-// List users (admin-facing, used for team management UI)
-router.get('/users', authenticate, async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC'
-    );
-    res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 module.exports = router;

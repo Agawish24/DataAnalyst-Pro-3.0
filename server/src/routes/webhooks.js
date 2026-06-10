@@ -1,8 +1,17 @@
 const express = require('express');
 const https = require('https');
+const crypto = require('crypto');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 const axios = require('axios');
+
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+const signPayload = (body) => {
+  if (!WEBHOOK_SECRET) return {};
+  const sig = 'sha256=' + crypto.createHmac('sha256', WEBHOOK_SECRET).update(JSON.stringify(body)).digest('hex');
+  return { 'X-Webhook-Signature': sig, 'X-Webhook-Timestamp': new Date().toISOString() };
+};
 
 const router = express.Router();
 
@@ -125,7 +134,7 @@ router.get('/', authenticate, async (req, res) => {
     const r = await pool.query(
       `SELECT w.*, d.name as dataset_name
        FROM webhooks w LEFT JOIN datasets d ON w.dataset_id=d.id
-       WHERE w.created_by=$1 OR w.shared=true
+       WHERE w.created_by=$1
        ORDER BY w.created_at DESC`,
       [req.user.id]
     );
@@ -182,7 +191,7 @@ router.put('/:id', authenticate, async (req, res) => {
       `UPDATE webhooks SET
          name=COALESCE($1,name), url=COALESCE($2,url), is_active=COALESCE($3,is_active),
          metric_col=COALESCE($4,metric_col), operator=COALESCE($5,operator),
-         threshold_value=COALESCE($6,threshold_value), updated_at=NOW()
+         threshold_value=COALESCE($6,threshold_value)
        WHERE id=$7 AND created_by=$8 RETURNING *`,
       [name, url, is_active, metric_col, operator, threshold_value, req.params.id, req.user.id]
     );
@@ -223,7 +232,7 @@ router.post('/:id/test', authenticate, async (req, res) => {
     const wh = r.rows[0];
     const payload = { event: 'test', webhook: wh.name, timestamp: new Date().toISOString(), message: 'Test trigger from DataAnalyst Pro' };
     try {
-      const resp = await axios({ method: wh.method || 'POST', url: wh.url, headers: { 'Content-Type': 'application/json', ...(wh.headers || {}) }, data: payload, timeout: 10000 });
+      const resp = await axios({ method: wh.method || 'POST', url: wh.url, headers: { 'Content-Type': 'application/json', ...(wh.headers || {}), ...signPayload(payload) }, data: payload, timeout: 10000 });
       await writeAudit(wh.id, 'test_ok', req.user.id, { status: resp.status });
       res.json({ ok: true, status: resp.status });
     } catch (e) {
@@ -286,7 +295,7 @@ router.post('/:id/trigger', authenticate, async (req, res) => {
     // ── Dispatch webhook ─────────────────────────────────────────────
     let dispatchOk = false, responseStatus = 0;
     try {
-      const resp = await axios({ method: wh.method || 'POST', url: wh.url, headers: { 'Content-Type': 'application/json', ...(wh.headers || {}) }, data: payload, timeout: 12000 });
+      const resp = await axios({ method: wh.method || 'POST', url: wh.url, headers: { 'Content-Type': 'application/json', ...(wh.headers || {}), ...signPayload(payload) }, data: payload, timeout: 12000 });
       dispatchOk = true; responseStatus = resp.status;
     } catch (e) { responseStatus = e.response?.status || 0; }
 

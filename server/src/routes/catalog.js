@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, domain, sensitivity, tag } = req.query;
-    let query = `SELECT c.*, d.name as dataset_name, d.row_count, d.column_count, d.source, d.created_at as dataset_created, u.name as owner_name
+    let query = `SELECT c.*, d.name as dataset_name, d.row_count, d.source, d.created_at as dataset_created, u.name as owner_name
       FROM catalog_entries c
       JOIN datasets d ON c.dataset_id = d.id
       LEFT JOIN users u ON d.uploaded_by = u.id
@@ -39,7 +39,7 @@ router.get('/domains', authenticate, async (req, res) => {
 
 router.get('/:datasetId', authenticate, async (req, res) => {
   try {
-    const result = await pool.query('SELECT c.*, d.name, d.schema, d.row_count, d.column_count, d.source FROM catalog_entries c JOIN datasets d ON c.dataset_id=d.id WHERE c.dataset_id=$1', [req.params.datasetId]);
+    const result = await pool.query('SELECT c.*, d.name, d.schema, d.row_count, d.source FROM catalog_entries c JOIN datasets d ON c.dataset_id=d.id WHERE c.dataset_id=$1', [req.params.datasetId]);
     if (!result.rows.length) {
       const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.datasetId]);
       if (!ds.rows.length) return res.status(404).json({ error: 'Not found' });

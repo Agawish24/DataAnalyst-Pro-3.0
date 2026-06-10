@@ -179,7 +179,7 @@ const generateNarrative = (ds, schema, rows, numStats, catStats, timeCol) => {
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT n.*, d.name as dataset_name FROM narratives n LEFT JOIN datasets d ON n.dataset_id = d.id WHERE n.created_by = $1 ORDER BY n.created_at DESC LIMIT 50',
+      'SELECT n.*, d.name as dataset_name FROM narratives n LEFT JOIN datasets d ON n.dataset_id = d.id WHERE n.user_id = $1 ORDER BY n.generated_at DESC LIMIT 50',
       [req.user.id]
     );
     res.json(result.rows);
@@ -211,15 +211,15 @@ router.post('/:datasetId', authenticate, async (req, res) => {
     const narrative = generateNarrative(dataset, schema, rows, numStats, catStats, timeCol);
 
     const saved = await pool.query(
-      'INSERT INTO narratives (dataset_id, title, content, created_by) VALUES ($1,$2,$3,$4) RETURNING id, created_at',
-      [dataset.id, `Analysis: ${dataset.name}`, JSON.stringify(narrative), req.user.id]
+      'INSERT INTO narratives (dataset_id, user_id, content) VALUES ($1,$2,$3) RETURNING id, generated_at',
+      [dataset.id, req.user.id, JSON.stringify(narrative)]
     );
 
     res.json({
       id: saved.rows[0].id,
       datasetId: dataset.id,
       datasetName: dataset.name,
-      generatedAt: saved.rows[0].created_at,
+      generatedAt: saved.rows[0].generated_at,
       sections: narrative,
       stats: {
         rowCount: rows.length,
@@ -235,9 +235,9 @@ router.post('/:datasetId', authenticate, async (req, res) => {
 router.get('/history', authenticate, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT n.id, n.title, n.created_at, d.name as dataset_name, d.id as dataset_id
+      `SELECT n.id, d.name as title, n.generated_at as created_at, d.name as dataset_name, d.id as dataset_id
        FROM narratives n JOIN datasets d ON n.dataset_id=d.id
-       ORDER BY n.created_at DESC LIMIT 20`
+       ORDER BY n.generated_at DESC LIMIT 20`
     );
     res.json(r.rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -246,7 +246,7 @@ router.get('/history', authenticate, async (req, res) => {
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const r = await pool.query(
-      'SELECT n.*, d.name as dataset_name FROM narratives n JOIN datasets d ON n.dataset_id=d.id WHERE n.id=$1 AND n.created_by=$2',
+      'SELECT n.*, d.name as dataset_name FROM narratives n JOIN datasets d ON n.dataset_id=d.id WHERE n.id=$1 AND n.user_id=$2',
       [req.params.id, req.user.id]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
@@ -256,7 +256,7 @@ router.get('/:id', authenticate, async (req, res) => {
 
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    await pool.query('DELETE FROM narratives WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    await pool.query('DELETE FROM narratives WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

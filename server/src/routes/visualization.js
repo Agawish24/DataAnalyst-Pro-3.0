@@ -169,7 +169,10 @@ router.get('/charts', authenticate, async (req, res) => {
       [req.user.id, req.user.role]
     );
     res.json(r.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (err.message.includes('does not exist')) return res.json([]); // table not yet created
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/charts', authenticate, async (req, res) => {
@@ -184,7 +187,10 @@ router.post('/charts', authenticate, async (req, res) => {
       [name, datasetId || null, ds.rows[0]?.name || null, JSON.stringify(config || {}), JSON.stringify(filters), req.user.id, JSON.stringify(lineageSnapshot)]
     );
     res.json(r.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (err.message.includes('does not exist')) return res.status(503).json({ error: 'saved_charts table not yet created — run migrations' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.delete('/charts/:id', authenticate, async (req, res) => {

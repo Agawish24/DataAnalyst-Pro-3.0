@@ -6,7 +6,7 @@ const { authenticate } = require('../middleware/auth');
 const { computeFullSummary, computeCorrelationMatrix } = require('../helpers/statsHelper');
 
 const router = express.Router();
-const PYTHON_URL = 'http://localhost:8000';
+const { pyPost: pyPostBQ } = require('../utils/pythonClient');
 
 // ── Groq AI helper ───────────────────────────────────────────────────────────
 const groqChat = (messages, model = 'llama-3.1-8b-instant') => new Promise((resolve, reject) => {
@@ -27,7 +27,7 @@ const groqChat = (messages, model = 'llama-3.1-8b-instant') => new Promise((reso
 // ── Python multi-method anomaly detection ────────────────────────────────────
 const runMultiMethodAnomalyDetection = async (rows, numericCols, targetCol) => {
   try {
-    const r = await axios.post(`${PYTHON_URL}/anomaly/multi-method`, {
+    const r = await pyPostBQ('/anomaly/multi-method', {
       rows,
       columns: numericCols,
       target_col: targetCol,

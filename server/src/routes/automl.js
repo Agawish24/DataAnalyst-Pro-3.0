@@ -2,10 +2,9 @@ const express = require('express');
 const https = require('https');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
-const axios = require('axios');
+const { pyPost } = require('../utils/pythonClient');
 
 const router = express.Router();
-const PYTHON = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
 // ── Groq AI helper ───────────────────────────────────────────────────────────
 const groqChat = (messages, model = 'llama-3.1-8b-instant') => new Promise((resolve, reject) => {
@@ -86,7 +85,7 @@ router.post('/:datasetId/run', authenticate, async (req, res) => {
     const detectedTask = detectTaskType(rows, target_col, task_type);
     const runAt = new Date().toISOString();
 
-    const pyRes = await axios.post(`${PYTHON}/automl`, {
+    const pyRes = await pyPost('/automl', {
       data: rows, target_col, feature_cols, task_type: detectedTask
     }, { timeout: 180000 });
 
@@ -162,7 +161,7 @@ router.post('/cross-dataset', authenticate, async (req, res) => {
     const detectedTask = detectTaskType(merged, target_col, task_type);
     const runAt = new Date().toISOString();
 
-    const pyRes = await axios.post(`${PYTHON}/automl`, {
+    const pyRes = await pyPost('/automl', {
       data: merged, target_col, feature_cols, task_type: detectedTask
     }, { timeout: 180000 });
 

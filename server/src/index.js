@@ -59,14 +59,21 @@ app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(morgan('dev'));
-app.use(cors({ origin: '*', credentials: true }));
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : true; // reflect origin in dev — safe because credentials are JWT-based
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 2000, standardHeaders: true, legacyHeaders: false });
+// General API rate limit
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
 app.use('/api', limiter);
 
-app.use('/api/auth', authRoutes);
+// Stricter limit for auth endpoints
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts, please try again later' } });
+
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/datasets', datasetRoutes);
 app.use('/api/cleaning', cleaningRoutes);
 app.use('/api/queries', queryRoutes);
@@ -225,7 +232,26 @@ app.use('/api/salesforce', (req, res, next) => {
   crmRouter(req, res, next);
 });
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '3.0.0' }));
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString(), version: '5.0.0', uptime: Math.floor(process.uptime()) });
+  } catch (e) {
+    res.status(503).json({ status: 'degraded', db: 'disconnected', error: e.message });
+  }
+});
+
+app.get('/api/ready', async (req, res) => {
+  const checks = { db: false, python: false };
+  try { await pool.query('SELECT 1'); checks.db = true; } catch {}
+  try {
+    const { default: axios } = await import('axios');
+    await axios.get(`${process.env.PYTHON_SERVICE_URL || 'http://localhost:8000'}/health`, { timeout: 2000 });
+    checks.python = true;
+  } catch {}
+  const allOk = checks.db && checks.python;
+  res.status(allOk ? 200 : 503).json({ ready: allOk, checks });
+});
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../client/dist')));
@@ -235,5 +261,20 @@ if (process.env.NODE_ENV === 'production') {
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+const server = app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+
+// Graceful shutdown
+const shutdown = async (signal) => {
+  console.log(`[${signal}] Graceful shutdown initiated...`);
+  server.close(() => {
+    pool.end().then(() => {
+      console.log('[shutdown] DB pool closed. Exiting.');
+      process.exit(0);
+    }).catch(() => process.exit(0));
+  });
+  setTimeout(() => process.exit(1), 10000); // force kill after 10s
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 module.exports = app;

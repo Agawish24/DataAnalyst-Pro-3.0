@@ -114,12 +114,13 @@ router.get('/feed', (req, res) => {
   res.write(`data: ${JSON.stringify({ type: 'connected', feedType, intervalMs, ts: Date.now() })}\n\n`);
 
   const timer = setInterval(() => {
+    if (!res.writable) { clearInterval(timer); return; }
     try {
       const point = generator(i++);
       res.write(`data: ${JSON.stringify({ ...point, _seq: i, _type: feedType })}\n\n`);
     } catch (e) { 
       console.error('[streaming/feed error]', e.message);
-      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      if (res.writable) res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
       clearInterval(timer); 
     }
   }, intervalMs);
@@ -149,6 +150,7 @@ router.get('/feed/dataset/:id', authenticate, async (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'connected', dataset: ds.rows[0].name, total: data.length })}\n\n`);
 
     const timer = setInterval(() => {
+      if (!res.writable) { clearInterval(timer); return; }
       if (i >= data.length) {
         if (loop) { i = 0; } else {
           res.write(`data: ${JSON.stringify({ type: 'done', total: data.length })}\n\n`);

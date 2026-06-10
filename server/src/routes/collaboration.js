@@ -30,28 +30,21 @@ router.get('/:datasetId/comments', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.*, u.name as user_name, u.role as user_role FROM comments c LEFT JOIN users u ON c.user_id=u.id
-       WHERE c.target_type='dataset' AND c.target_id=$1 AND c.parent_id IS NULL ORDER BY c.created_at ASC`,
+       WHERE c.target_type='dataset' AND c.target_id=$1 ORDER BY c.created_at ASC`,
       [req.params.datasetId]
     );
-    const comments = await Promise.all(result.rows.map(async (comment) => {
-      const replies = await pool.query(
-        `SELECT c.*, u.name as user_name FROM comments c LEFT JOIN users u ON c.user_id=u.id WHERE c.parent_id=$1 ORDER BY c.created_at ASC`,
-        [comment.id]
-      );
-      return { ...comment, replies: replies.rows };
-    }));
-    res.json(comments);
+    res.json(result.rows.map(c => ({ ...c, replies: [] })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Alias: POST /:datasetId/comments → POST /comments
 router.post('/:datasetId/comments', authenticate, async (req, res) => {
   try {
-    const { content, parent_id } = req.body;
+    const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'Content required' });
     const result = await pool.query(
-      'INSERT INTO comments (target_type, target_id, content, parent_id, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      ['dataset', req.params.datasetId, content, parent_id || null, req.user.id]
+      'INSERT INTO comments (target_type, target_id, content, user_id) VALUES ($1,$2,$3,$4) RETURNING *',
+      ['dataset', req.params.datasetId, content, req.user.id]
     );
     res.status(201).json({ ...result.rows[0], user_name: req.user.name, replies: [] });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -62,27 +55,20 @@ router.get('/comments/:targetType/:targetId', authenticate, async (req, res) => 
   try {
     const result = await pool.query(
       `SELECT c.*, u.name as user_name, u.role as user_role FROM comments c LEFT JOIN users u ON c.user_id=u.id
-       WHERE c.target_type=$1 AND c.target_id=$2 AND c.parent_id IS NULL ORDER BY c.created_at ASC`,
+       WHERE c.target_type=$1 AND c.target_id=$2 ORDER BY c.created_at ASC`,
       [req.params.targetType, req.params.targetId]
     );
-    const comments = await Promise.all(result.rows.map(async (comment) => {
-      const replies = await pool.query(
-        `SELECT c.*, u.name as user_name FROM comments c LEFT JOIN users u ON c.user_id=u.id WHERE c.parent_id=$1 ORDER BY c.created_at ASC`,
-        [comment.id]
-      );
-      return { ...comment, replies: replies.rows };
-    }));
-    res.json(comments);
+    res.json(result.rows.map(c => ({ ...c, replies: [] })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/comments', authenticate, async (req, res) => {
   try {
-    const { target_type, target_id, content, parent_id } = req.body;
+    const { target_type, target_id, content } = req.body;
     if (!content) return res.status(400).json({ error: 'Content required' });
     const result = await pool.query(
-      'INSERT INTO comments (target_type, target_id, content, parent_id, user_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [target_type, target_id, content, parent_id || null, req.user.id]
+      'INSERT INTO comments (target_type, target_id, content, user_id) VALUES ($1,$2,$3,$4) RETURNING *',
+      [target_type, target_id, content, req.user.id]
     );
     const comment = { ...result.rows[0], user_name: req.user.name, replies: [] };
     res.status(201).json(comment);

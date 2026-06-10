@@ -20,7 +20,7 @@ const applyStep = (rows, step) => {
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT r.*, u.name as creator_name FROM recipes r LEFT JOIN users u ON r.created_by=u.id WHERE r.created_by=$1 OR r.is_public=true ORDER BY r.updated_at DESC`,
+      `SELECT r.*, u.name as creator_name FROM recipes r LEFT JOIN users u ON r.created_by=u.id WHERE r.created_by=$1 OR r.is_public=true ORDER BY r.created_at DESC`,
       [req.user.id]
     );
     res.json(result.rows);
@@ -51,7 +51,7 @@ router.put('/:id', authenticate, async (req, res) => {
   try {
     const { name, description, steps, tags, is_public } = req.body;
     const result = await pool.query(
-      `UPDATE recipes SET name=COALESCE($1,name), description=COALESCE($2,description), steps=COALESCE($3,steps), tags=COALESCE($4,tags), is_public=COALESCE($5,is_public), updated_at=NOW() WHERE id=$6 AND created_by=$7 RETURNING *`,
+      `UPDATE recipes SET name=COALESCE($1,name), description=COALESCE($2,description), steps=COALESCE($3,steps), tags=COALESCE($4,tags), is_public=COALESCE($5,is_public) WHERE id=$6 AND created_by=$7 RETURNING *`,
       [name, description, steps ? JSON.stringify(steps) : null, tags, is_public, req.params.id, req.user.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Not found or unauthorized' });

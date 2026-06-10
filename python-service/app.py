@@ -16,6 +16,19 @@ warnings.filterwarnings('ignore')
 app = Flask(__name__)
 CORS(app)
 
+import os as _os
+_PYTHON_API_KEY = _os.environ.get('PYTHON_SERVICE_API_KEY')
+
+@app.before_request
+def verify_internal_key():
+    if request.path in ('/health', '/') or request.method == 'OPTIONS':
+        return None
+    if _PYTHON_API_KEY:
+        incoming = request.headers.get('X-API-Key', '')
+        if incoming != _PYTHON_API_KEY:
+            return jsonify({'error': 'Unauthorized — missing or invalid X-API-Key'}), 401
+    return None
+
 def df_from_rows(rows):
     df = pd.DataFrame(rows)
     for col in df.columns:

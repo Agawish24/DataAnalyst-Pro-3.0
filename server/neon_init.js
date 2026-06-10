@@ -326,13 +326,22 @@ async function createSchema() {
 
 async function seedUsers() {
   console.log('\n👤 Seeding users...');
-  const h1 = await bcrypt.hash('demo123', 10);
-  const h2 = await bcrypt.hash('analyst123', 10);
+  const adminEmail = process.env.SEED_ADMIN_EMAIL;
+  const adminPass  = process.env.SEED_ADMIN_PASSWORD;
+  const analystEmail = process.env.SEED_ANALYST_EMAIL;
+  const analystPass  = process.env.SEED_ANALYST_PASSWORD;
+  if (!adminEmail || !adminPass || !analystEmail || !analystPass) {
+    console.error('❌ Missing required env vars: SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_ANALYST_EMAIL, SEED_ANALYST_PASSWORD');
+    console.error('   Set these secrets before running neon_init.js');
+    process.exit(1);
+  }
+  const h1 = await bcrypt.hash(adminPass, 12);
+  const h2 = await bcrypt.hash(analystPass, 12);
   await q(`INSERT INTO users (name,email,password_hash,role,email_verified,avatar_color) VALUES
-    ('Demo Admin','demo@dataanalyst.com',$1,'admin',true,'#6366f1'),
-    ('Jane Analyst','analyst@dataanalyst.com',$2,'analyst',true,'#10b981')
-    ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name`, [h1, h2]);
-  console.log('✅ Users: demo@dataanalyst.com / demo123, analyst@dataanalyst.com / analyst123');
+    ('Admin',$1,$2,'admin',true,'#6366f1'),
+    ('Analyst',$3,$4,'analyst',true,'#10b981')
+    ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash`, [adminEmail, h1, analystEmail, h2]);
+  console.log('✅ Admin and analyst users seeded');
 }
 
 async function seedDatasets() {
@@ -690,8 +699,7 @@ async function main() {
     await seedData7();
     await seedFeatureData();
     console.log('\n🎉 Neon database fully initialized!');
-    console.log('   Demo: demo@dataanalyst.com / demo123');
-    console.log('   Demo: analyst@dataanalyst.com / analyst123');
+    console.log('   Users seeded from SEED_ADMIN_EMAIL / SEED_ANALYST_EMAIL env vars');
   } catch (e) {
     console.error('❌ Fatal error:', e.message);
     console.error(e.stack);

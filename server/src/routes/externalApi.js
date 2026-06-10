@@ -22,7 +22,7 @@ const ROLE_PERMISSIONS = {
 };
 
 const hasPermission = (key, perm) => {
-  const perms = Array.isArray(key.permissions) ? key.permissions : (JSON.parse(key.permissions || '[]'));
+  const perms = Array.isArray(key.scopes) ? key.scopes : (JSON.parse(key.scopes || '[]'));
   return perms.includes(perm) || perms.includes('admin');
 };
 
@@ -75,7 +75,7 @@ const apiKeyAuth = async (req, res, next) => {
     req.requestStart = Date.now();
 
     // Update last_used + request count async (don't await)
-    pool.query('UPDATE api_keys SET last_used_at=NOW(), request_count=request_count+1 WHERE id=$1', [apiKey.id]).catch(() => {});
+    pool.query('UPDATE api_keys SET last_used=NOW(), request_count=request_count+1 WHERE id=$1', [apiKey.id]).catch(() => {});
     next();
   } catch (err) {
     return apiError(res, 500, 'INTERNAL_ERROR', 'Authentication check failed', err.message);
@@ -128,8 +128,8 @@ const groqChat = (messages) => new Promise((resolve, reject) => {
 router.get('/keys', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, key_prefix, is_active, permissions, role, rate_limit_per_hour,
-              last_used_at, request_count, rows_returned, expires_at, created_at
+      `SELECT id, name, key_prefix, is_active, scopes,
+              last_used, request_count, created_at
        FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC`,
       [req.user.id]
     );
@@ -151,10 +151,10 @@ router.post('/keys', authenticate, async (req, res) => {
     const expiresAt = expires_days ? new Date(Date.now() + expires_days * 86400000) : null;
 
     const result = await pool.query(
-      `INSERT INTO api_keys (name, key_hash, key_prefix, user_id, permissions, role, rate_limit_per_hour, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id, name, key_prefix, is_active, permissions, role, rate_limit_per_hour, expires_at, created_at`,
-      [name, keyHash, keyPrefix, req.user.id, JSON.stringify(resolvedPerms), role, rate_limit_per_hour, expiresAt]
+      `INSERT INTO api_keys (name, key_hash, key_prefix, user_id, scopes)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, name, key_prefix, is_active, scopes, created_at`,
+      [name, keyHash, keyPrefix, req.user.id, JSON.stringify(resolvedPerms)]
     );
     res.status(201).json({ ...result.rows[0], raw_key: rawKey, warning: 'Store this key securely — it will NOT be shown again.' });
   } catch (err) { res.status(500).json({ error: err.message }); }

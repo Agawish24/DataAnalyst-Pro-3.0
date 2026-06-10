@@ -2,10 +2,9 @@ const express = require('express');
 const https = require('https');
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
-const axios = require('axios');
+const { pyPost } = require('../utils/pythonClient');
 
 const router = express.Router();
-const PYTHON = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
 // ── Groq AI helper ─────────────────────────────────────────────────────────
 const groqChat = (messages) => new Promise((resolve, reject) => {
@@ -71,8 +70,8 @@ router.get('/', authenticate, async (req, res) => {
     const result = await pool.query(
       `SELECT s.*, d.name as dataset_name
        FROM scenarios s LEFT JOIN datasets d ON s.dataset_id=d.id
-       WHERE s.created_by=$1 OR s.shared=true
-       ORDER BY s.updated_at DESC`,
+       WHERE s.created_by=$1
+       ORDER BY s.created_at DESC`,
       [req.user.id]
     );
     res.json(result.rows);
@@ -85,32 +84,23 @@ router.post('/', authenticate, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name required' });
     // Add shared column gracefully — use DO UPDATE in case it doesn't exist
     let result;
-    try {
-      result = await pool.query(
-        `INSERT INTO scenarios (name, description, dataset_id, variables, assumptions, created_by, shared, status, audit_trail)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','[]') RETURNING *`,
-        [name, description, dataset_id || null, JSON.stringify(variables), JSON.stringify(assumptions), req.user.id, shared]
-      );
-    } catch {
-      // Fallback if new columns not yet present
-      result = await pool.query(
-        `INSERT INTO scenarios (name, description, dataset_id, variables, assumptions, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [name, description, dataset_id || null, JSON.stringify(variables), JSON.stringify(assumptions), req.user.id]
-      );
-    }
+    result = await pool.query(
+      `INSERT INTO scenarios (name, description, dataset_id, variables, assumptions, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [name, description, dataset_id || null, JSON.stringify(variables), JSON.stringify(assumptions), req.user.id]
+    );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const { name, description, variables, assumptions, last_result, shared, status } = req.body;
+    const { name, description, variables, assumptions, last_result } = req.body;
     const result = await pool.query(
       `UPDATE scenarios SET
          name=COALESCE($1,name), description=COALESCE($2,description),
          variables=COALESCE($3,variables), assumptions=COALESCE($4,assumptions),
-         last_result=COALESCE($5,last_result), updated_at=NOW()
+         results=COALESCE($5,results)
        WHERE id=$6 AND created_by=$7 RETURNING *`,
       [name, description,
        variables ? JSON.stringify(variables) : null,
@@ -118,15 +108,6 @@ router.put('/:id', authenticate, async (req, res) => {
        last_result ? JSON.stringify(last_result) : null,
        req.params.id, req.user.id]
     );
-    // Try to update new columns if present
-    try {
-      if (shared !== undefined || status !== undefined) {
-        await pool.query(
-          `UPDATE scenarios SET shared=COALESCE($1,shared), status=COALESCE($2,status) WHERE id=$3 AND created_by=$4`,
-          [shared ?? null, status ?? null, req.params.id, req.user.id]
-        );
-      }
-    } catch { /* ignore if columns absent */ }
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -169,7 +150,7 @@ router.post('/:id/simulate', authenticate, async (req, res) => {
 
     const result = { scenarioId: sc.id, variables: simVars, sensitivity, compositeImpact: +compositeImpact.toFixed(2), simulatedAt: runAt };
 
-    await pool.query('UPDATE scenarios SET last_result=$1, updated_at=NOW() WHERE id=$2', [JSON.stringify(result), sc.id]);
+    await pool.query('UPDATE scenarios SET results=$1 WHERE id=$2', [JSON.stringify(result), sc.id]);
 
     // Governance lineage
     await writeLineage(sc.dataset_id, 'scenario_simulate', `user:${req.user.id}`, {
@@ -194,7 +175,7 @@ router.post('/monte-carlo', authenticate, async (req, res) => {
   try {
     const { variables, iterations = 10000, scenario_id, dataset_id, scenario_name, baseline_value } = req.body;
 
-    const pyRes = await axios.post(`${PYTHON}/monte-carlo`, {
+    const pyRes = await pyPost('/monte-carlo', {
       variables, iterations, baseline_value: baseline_value || 0
     }, { timeout: 60000 });
 
@@ -233,7 +214,7 @@ router.post('/monte-carlo', authenticate, async (req, res) => {
         variables: (variables || []).length,
       }),
       scenario_id ? pool.query(
-        'UPDATE scenarios SET last_result=$1, updated_at=NOW() WHERE id=$2',
+        'UPDATE scenarios SET results=$1 WHERE id=$2',
         [JSON.stringify({ ...mcResult, narrative, governance }), scenario_id]
       ).catch(() => {}) : Promise.resolve(),
     ]);

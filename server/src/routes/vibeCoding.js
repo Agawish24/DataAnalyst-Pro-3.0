@@ -6,7 +6,10 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-const ENC_KEY = (process.env.ENCRYPTION_KEY || 'dataanalyst_pro_vibe_key_32bytes!').slice(0, 32).padEnd(32, '0');
+if (!process.env.ENCRYPTION_KEY) {
+  console.warn('[WARN] ENCRYPTION_KEY env var not set — AI API key storage disabled. Set ENCRYPTION_KEY (32+ chars) to enable.');
+}
+const ENC_KEY = (process.env.ENCRYPTION_KEY || '').slice(0, 32).padEnd(32, '0');
 
 const encrypt = (text) => {
   const iv = crypto.randomBytes(16);

@@ -1,0 +1,100 @@
+Errors your tool missed
+Line 3: INSERT INTO users VALUES (1, 'John', 30, 'john@example.com', 'extra');  
+→ Too many values for the table definition.
+
+Line 7: UPDATE users SET name = 123 WHERE id = 'abc';  
+→ Type mismatch (string vs int).
+
+Line 8: SELECT COUNT(*) FORM users GROUP BY;  
+→ Incomplete GROUP BY clause.
+
+Line 9: JOIN users ON id;  
+→ Missing second table in join.
+
+Line 10: CREATE INDEX idx ON users (nonexistent);  
+→ Column doesn’t exist.
+
+Line 12: SELECT * FROM users WHERE age BETWEEN 'a' AND 'z';  
+→ Wrong types in BETWEEN.
+
+Line 13: INSERT INTO users (id, name) VALUES ();  
+→ Empty values list.
+
+Line 14: SELECT DISTINCT name, COUNT(*) FROM users;  
+→ Missing GROUP BY.
+
+Line 15: CREATE TABLE orders (...) REFERENCES users(idd);  
+→ FK references nonexistent column.
+
+Line 16: SELECT * FROM users WHERE age IN ();  
+→ Empty IN list.
+
+Line 17: SELECT AVG(name) FROM users;  
+→ Wrong function usage (AVG on string).
+
+Line 19: SELECT * FROM users ORDER name;  
+→ Missing BY.
+
+Line 20: SELECT * FROM users LIMIT -5;  
+→ Invalid negative limit.
+
+Line 21: SELECT * FROM users OFFSET 'ten';  
+→ Wrong type for offset.
+
+Line 22: SELECT * FROM users WHERE age >> 20;  
+→ Invalid operator.
+
+Line 23: SELECT * FROM users WHERE age === 20;  
+→ Triple equals not valid.
+
+Line 24: SELECT * FROM users WHERE NOT NOT age = 20;  
+→ Redundant double NOT.
+
+Line 26: SELECT * FROM users WHERE id IN (SELECT);  
+→ Incomplete subquery.
+
+Line 27: CREATE VIEW v AS SELECT bad FROM nowhere;  
+→ Nonexistent table/column.
+
+Line 28: SELECT * FROM users WHERE EXISTS (SELECT);  
+→ Incomplete EXISTS subquery.
+
+Line 30: SELECT * FROM users WHERE age > 20 AND;  
+→ Dangling AND.
+
+Line 31: SELECT * FROM users WHERE age > 20 OR;  
+→ Dangling OR.
+
+Line 32: SELECT * FROM users WHERE age > 20, email = 'a';  
+→ Wrong separator (comma instead of AND).
+
+Line 35: SELECT * FROM users GROUP BY name HAVING age > 20;  
+→ HAVING misuse (filters groups, not rows).
+
+Line 37: SELECT * FROM users WHERE id NOT IN;  
+→ Incomplete NOT IN.
+
+Line 38–40: ESCAPE, SIMILAR TO, REGEXP → all incomplete clauses.
+
+Line 41: SELECT * FROM users WHERE id = 'O'Reilly';  
+→ Bad quote escaping.
+
+Line 42: SELECT * FROM users WHERE id = "abc";  
+→ Wrong string delimiter (double quotes).
+
+Line 43: SELECT * FROM users WHERE id = TRUEE;  
+→ Typo in boolean literal.
+
+Line 44: SELECT * FROM users WHERE id = 1.2.3;  
+→ Invalid number format.
+
+Line 45: SELECT * FROM users WHERE id = 0xZZ;  
+→ Invalid hex literal.
+
+Line 46: SELECT * FROM users WHERE id = 1e999999;  
+→ Numeric overflow.
+
+Line 47–48: id = -; and id = +; → dangling operators.
+
+Line 49: SELECT * FROM users WHERE id = NULLS;  
+→ Typo in NULL literal.

@@ -19,10 +19,7 @@ A full-stack enterprise data analytics suite with React+Vite frontend, Node.js/E
 
 ## Demo Accounts
 
-| Email | Password | Role |
-|-------|----------|------|
-| demo@dataanalyst.com | demo123 | admin |
-| analyst@dataanalyst.com | analyst123 | analyst |
+Login credentials are stored as **environment secrets** (`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_ANALYST_EMAIL`, `SEED_ANALYST_PASSWORD`). Set these in the Replit Secrets panel before running `server/neon_init.js` to seed the database.
 
 ## Demo Datasets
 

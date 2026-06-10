@@ -120,7 +120,7 @@ router.get('/compliance', authenticate, authorize('admin'), async (req, res) => 
     // Check 1: 2FA adoption
     const [totalUsers, tfaEnabled] = await Promise.all([
       pool.query(`SELECT COUNT(*) FROM users`),
-      pool.query(`SELECT COUNT(DISTINCT user_id) FROM tfa_secrets WHERE is_verified=true`),
+      pool.query(`SELECT COUNT(DISTINCT user_id) FROM tfa_secrets WHERE enabled=true`),
     ]);
     const tfaPct = Math.round((parseInt(tfaEnabled.rows[0].count) / Math.max(1, parseInt(totalUsers.rows[0].count))) * 100);
     checks.push({

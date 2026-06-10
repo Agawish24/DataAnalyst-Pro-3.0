@@ -109,9 +109,12 @@ const handleAIQueryCore = async (req, res) => {
     const visualization = suggestChart(result.rows, generatedSQL);
 
     await pool.query(
-      'INSERT INTO ai_conversations (user_id, dataset_id, natural_language, generated_sql, result, visualization_config) VALUES ($1,$2,$3,$4,$5,$6)',
-      [req.user.id, datasetId, naturalLanguage, generatedSQL, JSON.stringify(result.rows.slice(0, 100)), JSON.stringify(visualization)]
-    );
+      'INSERT INTO ai_conversations (user_id, dataset_id, messages) VALUES ($1,$2,$3)',
+      [req.user.id, datasetId, JSON.stringify([
+        { role: 'user', content: naturalLanguage },
+        { role: 'assistant', content: generatedSQL, visualization, rowCount: result.rowCount }
+      ])]
+    ).catch(() => {}); // best-effort log
 
     res.json({
       naturalLanguage,

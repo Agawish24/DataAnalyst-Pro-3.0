@@ -61,8 +61,8 @@ const registerNode = async (type, nodeId, name, metadata = {}) => {
   return r.rows[0].id;
 };
 const registerEdge = async (sourceId, targetId, edgeType, metadata = {}) => {
-  const existing = await pool.query('SELECT id FROM lineage_edges WHERE source_id=$1 AND target_id=$2', [sourceId, targetId]);
-  if (!existing.rows.length) await pool.query('INSERT INTO lineage_edges (source_id, target_id, edge_type, metadata) VALUES ($1,$2,$3,$4)', [sourceId, targetId, edgeType, JSON.stringify(metadata)]);
+  const existing = await pool.query('SELECT id FROM lineage_edges WHERE source_node=$1 AND target_node=$2', [sourceId, targetId]);
+  if (!existing.rows.length) await pool.query('INSERT INTO lineage_edges (source_node, target_node, relationship) VALUES ($1,$2,$3)', [sourceId, targetId, edgeType]);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -82,11 +82,11 @@ router.get('/nodes', authenticate, async (req, res) => {
 router.get('/edges', authenticate, async (req, res) => {
   try {
     const edges = await pool.query(
-      `SELECT le.*, sn.node_name AS source_name, sn.node_type AS source_type,
-              tn.node_name AS target_name, tn.node_type AS target_type
+      `SELECT le.*, sn.label AS source_name, sn.node_type AS source_type,
+              tn.label AS target_name, tn.node_type AS target_type
        FROM lineage_edges le
-       JOIN lineage_nodes sn ON le.source_id = sn.id
-       JOIN lineage_nodes tn ON le.target_id = tn.id
+       LEFT JOIN lineage_nodes sn ON le.source_node = sn.node_id
+       LEFT JOIN lineage_nodes tn ON le.target_node = tn.node_id
        ORDER BY le.id`
     );
     res.json(edges.rows);
@@ -100,9 +100,9 @@ router.get('/datasets', authenticate, async (req, res) => {
   try {
     const datasets = await pool.query('SELECT id, name, row_count, created_at FROM datasets ORDER BY name');
     const nodeCountsRes = await pool.query(
-      `SELECT node_id, COUNT(*) as edge_count FROM lineage_edges le
-       JOIN lineage_nodes ln ON le.source_id = ln.id
-       WHERE ln.node_type = 'dataset' GROUP BY node_id`
+      `SELECT ln.node_id, COUNT(*) as edge_count FROM lineage_edges le
+       JOIN lineage_nodes ln ON le.source_node = ln.node_id
+       WHERE ln.node_type = 'dataset' GROUP BY ln.node_id`
     );
     const nodeCounts = {};
     nodeCountsRes.rows.forEach(r => { nodeCounts[r.node_id] = parseInt(r.edge_count); });
