@@ -29,6 +29,21 @@ const saveCleanedRows = async (datasetId, rows) => {
   await pool.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [rows.length, datasetId]);
 };
 
+// List cleaning jobs for the current user
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT j.*, d.name as dataset_name
+       FROM data_cleaning_jobs j
+       LEFT JOIN datasets d ON j.dataset_id = d.id
+       WHERE j.created_by = $1
+       ORDER BY j.created_at DESC LIMIT 100`,
+      [req.user.id]
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Apply a cleaning operation
 router.post('/:datasetId/apply', authenticate, async (req, res) => {
   try {

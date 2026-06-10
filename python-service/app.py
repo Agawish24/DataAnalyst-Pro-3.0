@@ -51,8 +51,12 @@ def regression():
         features = body.get('features', [])
         model_type = body.get('model', 'linear')
 
+        # Auto-select first numeric column when target not provided
+        if not target:
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            target = num_cols[0] if num_cols else None
         if not target or target not in df.columns:
-            return jsonify({'error': f'Target column "{target}" not found'}), 400
+            return jsonify({'error': f'Target column "{target}" not found — provide target in request body'}), 400
 
         if not features:
             features = [c for c in df.select_dtypes(include=[np.number]).columns if c != target]
@@ -438,10 +442,22 @@ def prescriptive():
         optimize_for = data.get('optimize_for', 'maximize')
         feature_cols = data.get('feature_cols', [])
 
-        if not rows or not target_col:
-            return jsonify({'error': 'rows and target_col required'}), 400
+        if not rows:
+            return jsonify({'error': 'rows required'}), 400
 
         df = df_from_rows(rows)
+
+        # Auto-select first numeric column when target_col not provided
+        if not target_col:
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if not num_cols:
+                for c in df.columns:
+                    if not pd.to_numeric(df[c], errors='coerce').isna().all():
+                        num_cols.append(c)
+            target_col = num_cols[0] if num_cols else None
+            if not target_col:
+                return jsonify({'error': 'No numeric columns found; provide target_col'}), 400
+
         if target_col not in df.columns:
             return jsonify({'error': f'Column {target_col} not found'}), 400
 
@@ -543,10 +559,22 @@ def root_cause():
         target_col = data.get('target_col')
         segment_col = data.get('segment_col')
 
-        if not rows or not target_col:
-            return jsonify({'error': 'rows and target_col required'}), 400
+        if not rows:
+            return jsonify({'error': 'rows required'}), 400
 
         df = df_from_rows(rows)
+
+        # Auto-select first numeric column when target_col not provided
+        if not target_col:
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if not num_cols:
+                for c in df.columns:
+                    if not pd.to_numeric(df[c], errors='coerce').isna().all():
+                        num_cols.append(c)
+            target_col = num_cols[0] if num_cols else None
+            if not target_col:
+                return jsonify({'error': 'No numeric columns found; provide target_col'}), 400
+
         if target_col not in df.columns:
             return jsonify({'error': f'Column {target_col} not found'}), 400
 

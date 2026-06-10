@@ -77,17 +77,15 @@ const writeAudit = async (webhookId, action, userId, metadata) => {
 
 // ── Evaluate a single rule against dataset aggregate ───────────────────────
 const evaluateRule = async (rule, datasetId) => {
-  const { metric_col, operator, threshold_value, agg_fn = 'AVG', time_window_hours } = rule;
+  // Accept both naming conventions: internal rule objects use metric_col/operator,
+  // DB row fields use threshold_column/threshold_operator
+  const metric_col = rule.metric_col || rule.threshold_column;
+  const operator   = rule.operator   || rule.threshold_operator;
+  const { threshold_value, agg_fn = 'AVG' } = rule;
   if (!metric_col || !operator || threshold_value === undefined || threshold_value === null) return null;
 
-  let query;
   const col = `"${metric_col}"`;
-  if (time_window_hours) {
-    // Requires a date/timestamp column — look for common patterns
-    query = `SELECT ${agg_fn}(${col}) as val FROM data_${datasetId}`;
-  } else {
-    query = `SELECT ${agg_fn}(${col}) as val FROM data_${datasetId}`;
-  }
+  const query = `SELECT ${agg_fn}(${col}::numeric) as val FROM data_${datasetId}`;
 
   const agg = await pool.query(query).catch(() => null);
   const currentValue = parseFloat(agg?.rows[0]?.val ?? 0);
@@ -101,9 +99,11 @@ const evaluateRule = async (rule, datasetId) => {
 // ── Evaluate all rules with AND/OR logic ────────────────────────────────────
 const evaluateAllRules = async (wh) => {
   const rules = wh.rules || [];
-  // Backwards compat: if no rules array but has metric_col, synthesise one
-  if (!rules.length && wh.metric_col) {
-    rules.push({ metric_col: wh.metric_col, operator: wh.operator || '>', threshold_value: wh.threshold_value, agg_fn: 'AVG', severity: 'medium' });
+  // Backwards compat: synthesise from threshold_column/threshold_operator (actual DB columns)
+  const tcol = wh.threshold_column;
+  const top  = wh.threshold_operator;
+  if (!rules.length && tcol) {
+    rules.push({ metric_col: tcol, operator: top || '>', threshold_value: wh.threshold_value, agg_fn: 'AVG', severity: 'medium' });
   }
   if (!rules.length) return { conditionMet: true, ruleResults: [] };
 
@@ -159,57 +159,39 @@ router.post('/', authenticate, async (req, res) => {
       finalRules = [{ metric_col, operator: operator || '>', threshold_value, agg_fn: 'AVG', severity, label: name }];
     }
 
-    let r;
-    try {
-      r = await pool.query(
-        `INSERT INTO webhooks
-           (name, url, dataset_id, metric_col, operator, threshold_value, method, headers, payload_template,
-            rules, rule_logic, severity, channel, channel_config, shared, min_interval_minutes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-        [name, url, dataset_id || null, metric_col || null, operator || null, threshold_value || null,
-         method, JSON.stringify(headers), payload_template || null,
-         JSON.stringify(finalRules), rule_logic, severity, channel, JSON.stringify(channel_config),
-         shared, min_interval_minutes, req.user.id]
-      );
-    } catch {
-      // Fallback: columns not yet migrated
-      r = await pool.query(
-        `INSERT INTO webhooks (name, url, dataset_id, metric_col, operator, threshold_value, method, headers, payload_template, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [name, url, dataset_id || null, metric_col || null, operator || null, threshold_value || null,
-         method, JSON.stringify(headers), payload_template || null, req.user.id]
-      );
-    }
+    // Use actual DB column names: threshold_column / threshold_operator / event_type
+    const r = await pool.query(
+      `INSERT INTO webhooks
+         (name, url, method, event_type, threshold_column, threshold_value, threshold_operator,
+          dataset_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [name, url, method,
+       req.body.event_type || req.body.event || null,
+       metric_col || null, threshold_value ?? null, operator || null,
+       dataset_id || null, req.user.id]
+    );
     res.status(201).json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const { name, url, is_active, metric_col, operator, threshold_value, rules, rule_logic, severity, shared, min_interval_minutes, channel, channel_config } = req.body;
+    const { name, url, is_active, metric_col, threshold_column, operator, threshold_operator, threshold_value, event_type, event } = req.body;
     const r = await pool.query(
       `UPDATE webhooks SET
          name=COALESCE($1,name), url=COALESCE($2,url), is_active=COALESCE($3,is_active),
-         metric_col=COALESCE($4,metric_col), operator=COALESCE($5,operator),
-         threshold_value=COALESCE($6,threshold_value)
-       WHERE id=$7 AND created_by=$8 RETURNING *`,
-      [name, url, is_active, metric_col, operator, threshold_value, req.params.id, req.user.id]
+         threshold_column=COALESCE($4,threshold_column),
+         threshold_operator=COALESCE($5,threshold_operator),
+         threshold_value=COALESCE($6,threshold_value),
+         event_type=COALESCE($7,event_type)
+       WHERE id=$8 AND created_by=$9 RETURNING *`,
+      [name || null, url || null, is_active ?? null,
+       threshold_column || metric_col || null,
+       threshold_operator || operator || null,
+       threshold_value ?? null,
+       event_type || event || null,
+       req.params.id, req.user.id]
     );
-    // Try extended columns
-    try {
-      await pool.query(
-        `UPDATE webhooks SET
-           rules=COALESCE($1,rules), rule_logic=COALESCE($2,rule_logic),
-           severity=COALESCE($3,severity), shared=COALESCE($4,shared),
-           min_interval_minutes=COALESCE($5,min_interval_minutes),
-           channel=COALESCE($6,channel), channel_config=COALESCE($7,channel_config)
-         WHERE id=$8`,
-        [rules ? JSON.stringify(rules) : null, rule_logic || null, severity || null,
-         shared ?? null, min_interval_minutes ?? null,
-         channel || null, channel_config ? JSON.stringify(channel_config) : null,
-         req.params.id]
-      );
-    } catch { /* extended cols not available */ }
     if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(r.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

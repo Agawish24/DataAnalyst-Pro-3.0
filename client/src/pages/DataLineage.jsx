@@ -697,28 +697,30 @@ export default function DataLineage() {
             </div>
           )}
           {lineage.auditTrail?.map((entry, i) => (
-            card(
-              <div key={i} style={{ padding: '14px 18px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Activity size={15} color="#818cf8" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{(entry.action || '').replace(/_/g, ' ')}</span>
-                    <span style={{ color: '#4b5563', fontSize: 11 }}>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
+            <div key={i}>
+              {card(
+                <div style={{ padding: '14px 18px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Activity size={15} color="#818cf8" />
                   </div>
-                  <div style={{ color: '#6b7280', fontSize: 12, marginBottom: entry.details ? 6 : 0 }}>
-                    <User size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                    {entry.user_name || 'System'} {entry.user_email ? `(${entry.user_email})` : ''}
-                  </div>
-                  {entry.details && Object.keys(entry.details).length > 0 && (
-                    <div style={{ background: '#0d0d1a', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {entry.details.sql || JSON.stringify(entry.details).slice(0, 120)}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{(entry.action || '').replace(/_/g, ' ')}</span>
+                      <span style={{ color: '#4b5563', fontSize: 11 }}>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
                     </div>
-                  )}
+                    <div style={{ color: '#6b7280', fontSize: 12, marginBottom: entry.details ? 6 : 0 }}>
+                      <User size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                      {entry.user_name || 'System'} {entry.user_email ? `(${entry.user_email})` : ''}
+                    </div>
+                    {entry.details && Object.keys(entry.details).length > 0 && (
+                      <div style={{ background: '#0d0d1a', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.details.sql || JSON.stringify(entry.details).slice(0, 120)}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -767,27 +769,31 @@ export default function DataLineage() {
                 <MessageSquare size={32} style={{ margin: '0 auto 10px', display: 'block', opacity: 0.3 }} />
                 <div style={{ fontSize: 13 }}>No annotations yet. Be the first to annotate this lineage graph.</div>
               </div>
-            : annotations.map(a => card(
-              <div key={a.id} style={{ padding: '14px 18px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13, fontWeight: 700, color: '#fff' }}>
-                  {a.user_name?.[0]?.toUpperCase() || '?'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 13 }}>{a.user_name || 'Unknown'}</span>
-                      <span style={{ background: a.annotation_type === 'issue' ? 'rgba(239,68,68,0.15)' : a.annotation_type === 'approval' ? 'rgba(16,185,129,0.15)' : a.annotation_type === 'insight' ? 'rgba(99,102,241,0.15)' : 'rgba(139,92,246,0.15)', color: a.annotation_type === 'issue' ? '#fca5a5' : a.annotation_type === 'approval' ? '#6ee7b7' : a.annotation_type === 'insight' ? '#a5b4fc' : '#c4b5fd', padding: '1px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, textTransform: 'capitalize' }}>{a.annotation_type}</span>
+            : annotations.map(a => (
+              <div key={a.id}>
+                {card(
+                  <div style={{ padding: '14px 18px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13, fontWeight: 700, color: '#fff' }}>
+                      {a.user_name?.[0]?.toUpperCase() || '?'}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{ color: '#4b5563', fontSize: 11 }}>{new Date(a.created_at).toLocaleDateString()}</span>
-                      <button onClick={() => deleteAnnotation(a.id)} style={{ background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
-                        <Trash2 size={12} />
-                      </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 13 }}>{a.user_name || 'Unknown'}</span>
+                          <span style={{ background: a.annotation_type === 'issue' ? 'rgba(239,68,68,0.15)' : a.annotation_type === 'approval' ? 'rgba(16,185,129,0.15)' : a.annotation_type === 'insight' ? 'rgba(99,102,241,0.15)' : 'rgba(139,92,246,0.15)', color: a.annotation_type === 'issue' ? '#fca5a5' : a.annotation_type === 'approval' ? '#6ee7b7' : a.annotation_type === 'insight' ? '#a5b4fc' : '#c4b5fd', padding: '1px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, textTransform: 'capitalize' }}>{a.annotation_type}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span style={{ color: '#4b5563', fontSize: 11 }}>{new Date(a.created_at).toLocaleDateString()}</span>
+                          <button onClick={() => deleteAnnotation(a.id)} style={{ background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 5 }}>On: {a.node_label || 'Dataset'}</div>
+                      <div style={{ color: '#d1d5db', fontSize: 13, lineHeight: 1.5 }}>{a.content}</div>
                     </div>
                   </div>
-                  <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 5 }}>On: {a.node_label || 'Dataset'}</div>
-                  <div style={{ color: '#d1d5db', fontSize: 13, lineHeight: 1.5 }}>{a.content}</div>
-                </div>
+                )}
               </div>
             ))}
         </div>

@@ -93,7 +93,7 @@ router.post('/:id/apply/:datasetId', authenticate, async (req, res) => {
     }
 
     await pool.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [rows.length, req.params.datasetId]);
-    await pool.query('UPDATE recipes SET usage_count=usage_count+1 WHERE id=$1', [req.params.id]);
+    await pool.query('UPDATE recipes SET updated_at=NOW() WHERE id=$1', [req.params.id]).catch(() => null);
     await pool.query('INSERT INTO recipe_applications (recipe_id, dataset_id, applied_by, result) VALUES ($1,$2,$3,$4)',
       [req.params.id, req.params.datasetId, req.user.id, JSON.stringify({ before, after: rows.length, steps: steps.length })]);
 

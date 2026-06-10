@@ -101,7 +101,7 @@ router.post('/:id/run', authenticate, async (req, res) => {
       'UPDATE job_runs SET status=$1, finished_at=NOW(), result=$2, error_message=$3 WHERE id=$4',
       [error ? 'failed' : 'success', JSON.stringify(result), error, runId]
     );
-    await pool.query('UPDATE jobs SET last_run_at=NOW(), last_result=$1 WHERE id=$2', [JSON.stringify(result), j.id]);
+    await pool.query('UPDATE jobs SET last_run=NOW() WHERE id=$1', [j.id]);
     res.json({ run_id: runId, status: error ? 'failed' : 'success', result, error });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
