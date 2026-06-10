@@ -611,6 +611,104 @@ python3 python-service/app.py     # ML service — port 8000
 
 ---
 
+## Deploying to Railway
+
+### 1. One-Service Deployment (Full Stack on 1 Service)
+
+This is the **recommended** approach. All three layers (frontend, backend, database) run together on one Railway service.
+
+**What you get:**
+- Railway automatically creates a PostgreSQL database
+- Backend serves both API routes AND static frontend files
+- One domain, zero CORS issues
+- One environment variable panel
+
+**Steps:**
+1. **Create a Railway project** at https://railway.app
+2. **Link your GitHub repo** (or deploy from template)
+3. **Railway will auto-detect `railway.json`** and build with Nixpacks
+4. **Add these environment variables** in Railway Dashboard → Variables:
+   - `JWT_SECRET` — generate with `openssl rand -hex 64`
+   - `NODE_ENV` = `production`
+   - *(Optional)* `ZOHO_CLIENT_ID` + `ZOHO_CLIENT_SECRET` — if you want Zoho CRM
+   - *(Optional)* `GROQ_API_KEY` — if you want AI assistant features
+   - `DATABASE_URL` — **Railway auto-generates this** when you add a PostgreSQL database
+5. **Add a PostgreSQL database** from Railway Dashboard → New → Database
+   - Railway injects `DATABASE_URL` automatically
+   - Tables auto-create on first run (server handles `CREATE TABLE IF NOT EXISTS`)
+6. **Deploy** — the `startCommand` in `railway.json` builds the frontend and starts the backend
+7. **The app runs on the single Railway URL** (e.g., `https://your-app.railway.app`)
+
+### Architecture on Railway
+```
+Your Railway Service
+  ├── React frontend (built → served as static files by Express)
+  ├── Node.js API (Express routes + PostgreSQL pool)
+  └── PostgreSQL (managed by Railway)
+```
+
+**Note:** The Python ML microservice is NOT included in the single-service deployment. ML features (regression, classification, clustering, AutoML, Prophet, etc.) will return "Service unavailable" unless you deploy it separately.
+
+---
+
+### 2. Two-Service Deployment (Recommended for Full ML)
+
+If you want **all ML features working**, deploy the Python service as a second Railway service.
+
+**Service 1 — Node.js (Full Stack):**
+- Same setup as above, but add: `PYTHON_SERVICE_URL=https://your-ml-service.railway.app`
+
+**Service 2 — Python ML:**
+- Deploy `python-service/` as a separate service
+- Use `Dockerfile.python` or set a Python Nixpack
+- Set `PYTHON_SERVICE_URL` on Service 1 to point to Service 2's URL
+
+```
+┌─────────────┐     ┌─────────────┐     ┌───────────┐
+│   React     │     │   Node.js   │     │  Python   │
+│   (static)  │     │   API       │     │   ML      │
+│   served by │     │   + DB      │     │   Service │
+│   Express   │     │             │     │           │
+└─────────────┘     └──────┬──────┘     └─────┬─────┘
+                           │ HTTP              │
+                     ┌─────┴─────┐       ┌─────┴─────┐
+                     │ PostgreSQL│       │   Flask   │
+                     │ (Railway) │       │ + sklearn │
+                     └───────────┘       └───────────┘
+```
+
+---
+
+### Required Environment Variables
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `DATABASE_URL` | ✅ | Auto-generated | PostgreSQL connection string |
+| `JWT_SECRET` | ✅ | none | JWT signing — generate a 64-char random string |
+| `NODE_ENV` | ✅ | `production` | Tells the server to serve built frontend files |
+| `PORT` | ❌ | `3001` | Railway overrides this automatically |
+| `PYTHON_SERVICE_URL` | ❌ | none | URL to your deployed Python ML service |
+| `ZOHO_CLIENT_ID` | ❌ | none | Zoho CRM OAuth |
+| `ZOHO_CLIENT_SECRET` | ❌ | none | Zoho CRM OAuth |
+| `GROQ_API_KEY` | ❌ | none | AI assistant (Groq API) |
+
+---
+
+### Monorepo vs Separate Services
+
+This is a **monorepo** (all code in one repo). Railway handles it by:
+1. Building the frontend into `client/dist`
+2. Running the backend which serves both `/api/*` and static files
+
+You do **NOT** need separate databases. One Railway PostgreSQL service is enough.
+
+**Note:** Railway free tier includes:
+- 5 GB disk (PostgreSQL + uploads)
+- $5/month credit for compute
+- For production, upgrade to Hobby ($5/month) or Pro ($29/month)
+
+---
+
 ## Security
 
 - All routes protected with JWT `authenticate` middleware; admin routes additionally require `authorize('admin')`

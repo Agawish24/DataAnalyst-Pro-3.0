@@ -53,3 +53,17 @@ replit.nix
 
 # Package locks (optional — remove these lines if you want to commit them)
 # package-lock.json
+
+# Railway / deployment
+.railway/
+
+# Local data
+*.sqlite
+*.sqlite3
+
+# Frontend build output
+server/public/
+server/dist/
+
+# Temporary files
+/tmp/
