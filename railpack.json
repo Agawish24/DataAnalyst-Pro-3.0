@@ -10,14 +10,12 @@
       "type": "shared"
     }
   },
-  "steps": [
-    {
-      "name": "install",
-      "caches": ["...", "pip"]
+  "steps": {
+    "install": {
+      "caches": ["pip"]
     },
-    {
-      "name": "build",
-      "caches": ["...", "npm", "pip"]
+    "build": {
+      "caches": ["npm", "pip"]
     }
-  ]
+  }
 }

@@ -10,14 +10,14 @@ python3 app.py &
 PYTHON_PID=$!
 echo "[start.sh] Python PID: $PYTHON_PID"
 
-echo "[start.sh] Waiting for Python service to be ready (up to 30s)..."
+echo "[start.sh] Waiting for Python service to be ready (up to 60s)..."
 PYTHON_READY=0
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if ! kill -0 $PYTHON_PID 2>/dev/null; then
     echo "[start.sh] ERROR: Python process died before becoming ready."
     exit 1
   fi
-  if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+  if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)" > /dev/null 2>&1; then
     echo "[start.sh] Python service ready after ${i}s."
     PYTHON_READY=1
     break
@@ -26,7 +26,7 @@ for i in $(seq 1 30); do
 done
 
 if [ $PYTHON_READY -eq 0 ]; then
-  echo "[start.sh] ERROR: Python service did not become ready within 30s. Aborting."
+  echo "[start.sh] ERROR: Python service did not become ready within 60s. Aborting."
   kill $PYTHON_PID 2>/dev/null
   exit 1
 fi
