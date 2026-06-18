@@ -227,8 +227,9 @@ router.get('/v1/datasets', apiKeyAuth, async (req, res) => {
   if (!hasPermission(req.apiKey, 'read')) return apiError(res, 403, 'PERMISSION_DENIED', 'This key does not have read permission');
   try {
     const result = await pool.query(
-      `SELECT d.id, d.name, d.source, d.row_count, d.column_count, d.created_at,
-              u.name as owner
+      `SELECT d.id, d.name, d.source, d.row_count,
+              json_array_length(d.schema::json) AS column_count,
+              d.tags, d.created_at, u.name as owner
        FROM datasets d LEFT JOIN users u ON d.uploaded_by=u.id
        WHERE d.uploaded_by=$1
        ORDER BY d.created_at DESC`,
