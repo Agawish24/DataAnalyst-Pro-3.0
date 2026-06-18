@@ -6,7 +6,8 @@ cmds = [
   "npm install --prefix client --include=dev",
   "npm run build --prefix client",
   "npm install --prefix server --omit=dev",
-  "python3 -m pip install --break-system-packages -r python-service/requirements.txt"
+  "python3 -m ensurepip --upgrade",
+  "python3 -m pip install -r python-service/requirements.txt"
 ]
 
 [start]

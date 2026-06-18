@@ -11,16 +11,28 @@ PYTHON_PID=$!
 echo "[start.sh] Python PID: $PYTHON_PID"
 
 echo "[start.sh] Waiting for Python service to be ready (up to 30s)..."
+PYTHON_READY=0
 for i in $(seq 1 30); do
+  if ! kill -0 $PYTHON_PID 2>/dev/null; then
+    echo "[start.sh] ERROR: Python process died before becoming ready."
+    exit 1
+  fi
   if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
     echo "[start.sh] Python service ready after ${i}s."
+    PYTHON_READY=1
     break
   fi
   sleep 1
 done
 
+if [ $PYTHON_READY -eq 0 ]; then
+  echo "[start.sh] ERROR: Python service did not become ready within 30s. Aborting."
+  kill $PYTHON_PID 2>/dev/null
+  exit 1
+fi
+
 cd "$ROOT_DIR"
-echo "[start.sh] Starting Node.js backend on port 3001..."
+echo "[start.sh] Starting Node.js backend on port ${PORT:-3001}..."
 node server/src/index.js &
 NODE_PID=$!
 echo "[start.sh] Node.js PID: $NODE_PID"
