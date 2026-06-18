@@ -920,6 +920,115 @@ const fixSQLCode = (code) => {
   return lines.join('\n');
 };
 
+// ── SQL logical / semantic checks ────────────────────────────────────────────
+const checkSQLLogical = (code) => {
+  const errors = [];
+  const normalized = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const upper = normalized.toUpperCase();
+
+  // ── 1. WHERE 1 = NULL (always false, logical impossibility) ───────────────
+  if (/\bWHERE\b.*\b1\s*=\s*NULL\b/i.test(normalized) || /\bWHERE\b.*\bNULL\s*=\s*1\b/i.test(normalized)) {
+    errors.push({ type: 'error', language: 'sql', line: null,
+      message: 'Logical error: WHERE 1 = NULL is always FALSE — NULL comparisons must use IS NULL / IS NOT NULL',
+      fix: 'Use WHERE col IS NULL instead of WHERE col = NULL' });
+  }
+
+  // ── 2. WHERE col = NULL (should be IS NULL) ───────────────────────────────
+  const eqNullMatches = [...normalized.matchAll(/WHERE\b[^;]*?(\w+)\s*=\s*NULL\b/gi)];
+  eqNullMatches.forEach(m => {
+    const lineNum = normalized.substring(0, m.index).split('\n').length;
+    errors.push({ type: 'error', language: 'sql', line: lineNum,
+      message: `Line ${lineNum}: "${m[1]} = NULL" — NULL comparisons with = always return NULL (not TRUE); use IS NULL`,
+      fix: `Change to: ${m[1]} IS NULL` });
+  });
+
+  // ── 3. WHERE col != NULL / <> NULL ───────────────────────────────────────
+  const neqNullMatches = [...normalized.matchAll(/WHERE\b[^;]*?(\w+)\s*(?:!=|<>)\s*NULL\b/gi)];
+  neqNullMatches.forEach(m => {
+    const lineNum = normalized.substring(0, m.index).split('\n').length;
+    errors.push({ type: 'error', language: 'sql', line: lineNum,
+      message: `Line ${lineNum}: "${m[1]} != NULL" — inequality with NULL always returns NULL; use IS NOT NULL`,
+      fix: `Change to: ${m[1]} IS NOT NULL` });
+  });
+
+  // ── 4. GROUP BY column not in SELECT (simple single-statement check) ──────
+  const stmtMatch = normalized.match(/SELECT\s+([\s\S]+?)\s+FROM\s+[\s\S]+?\s+GROUP\s+BY\s+([\w,\s.]+?)(?:\s+HAVING|\s+ORDER|\s*;|$)/i);
+  if (stmtMatch) {
+    const selectPart = stmtMatch[1];
+    const groupByCols = stmtMatch[2].split(',').map(c => c.trim().replace(/\s+.*$/, '').toLowerCase());
+
+    // Skip if SELECT * (no column validation needed)
+    if (!/^\s*\*/.test(selectPart)) {
+      const selectTokens = selectPart.split(',').map(c => {
+        // Extract alias or final column name
+        const parts = c.trim().split(/\s+AS\s+|\s+/i);
+        const last = parts[parts.length - 1].toLowerCase().replace(/\s/g, '');
+        // Handle table.col notation
+        const dot = last.split('.').pop();
+        return dot;
+      });
+
+      for (const gbCol of groupByCols) {
+        if (!gbCol) continue;
+        const gbSimple = gbCol.split('.').pop();
+        // Check if this GROUP BY column appears in SELECT (as col name, alias, or expression)
+        const foundInSelect = selectTokens.some(sc => sc === gbSimple) ||
+          new RegExp(`\\b${gbSimple}\\b`, 'i').test(selectPart);
+        if (!foundInSelect) {
+          errors.push({ type: 'warning', language: 'sql', line: null,
+            message: `GROUP BY column "${gbCol}" does not appear in the SELECT list — this is valid SQL but may produce unexpected results; ensure all non-aggregated SELECT columns are in GROUP BY`,
+            fix: `Add "${gbCol}" to SELECT or remove it from GROUP BY` });
+        }
+      }
+    }
+  }
+
+  // ── 5. HAVING without GROUP BY ────────────────────────────────────────────
+  if (/\bHAVING\b/i.test(normalized) && !/\bGROUP\s+BY\b/i.test(normalized)) {
+    const lineNum = normalized.substring(0, normalized.search(/\bHAVING\b/i)).split('\n').length;
+    errors.push({ type: 'error', language: 'sql', line: lineNum,
+      message: `Line ${lineNum}: HAVING clause without GROUP BY — HAVING filters groups and requires GROUP BY`,
+      fix: 'Add GROUP BY before HAVING, or use WHERE instead of HAVING for row-level filtering' });
+  }
+
+  // ── 6. LIMIT 0 (returns no rows — probably unintentional) ─────────────────
+  if (/\bLIMIT\s+0\b/i.test(normalized)) {
+    const lineNum = normalized.substring(0, normalized.search(/\bLIMIT\s+0\b/i)).split('\n').length;
+    errors.push({ type: 'warning', language: 'sql', line: lineNum,
+      message: `Line ${lineNum}: LIMIT 0 returns no rows — this is likely unintentional`,
+      fix: 'Change to a positive LIMIT: LIMIT 10' });
+  }
+
+  // ── 7. Duplicate column in SELECT list ────────────────────────────────────
+  const selectDupMatch = normalized.match(/SELECT\s+([\s\S]+?)\s+FROM\b/i);
+  if (selectDupMatch) {
+    const cols = selectDupMatch[1].split(',').map(c => {
+      const aliasMatch = c.trim().match(/\bAS\s+(\w+)\s*$/i);
+      if (aliasMatch) return aliasMatch[1].toLowerCase();
+      const parts = c.trim().split(/[\s.]+/);
+      return parts[parts.length - 1].toLowerCase();
+    }).filter(c => /^\w+$/.test(c) && !['*', ''].includes(c));
+    const seen = new Set();
+    cols.forEach(c => {
+      if (seen.has(c)) {
+        errors.push({ type: 'warning', language: 'sql', line: null,
+          message: `Duplicate column or alias "${c}" in SELECT list — each selected column should have a unique name or alias`,
+          fix: `Add a unique alias to distinguish: SELECT ${c} AS ${c}_1, ${c} AS ${c}_2` });
+      }
+      seen.add(c);
+    });
+  }
+
+  // ── 8. WHERE clause tautology: WHERE 1=1 (not necessarily an error but flag) ─
+  if (/\bWHERE\s+1\s*=\s*1\b/i.test(normalized)) {
+    errors.push({ type: 'warning', language: 'sql', line: null,
+      message: 'WHERE 1=1 is a tautology (always true) — typically used as a query builder placeholder; remove it in production',
+      fix: 'Remove WHERE 1=1 or replace with a meaningful condition' });
+  }
+
+  return errors;
+};
+
 const analyzeSQL = (code) => {
   const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const allErrors = [];
@@ -938,6 +1047,9 @@ const analyzeSQL = (code) => {
 
   // 5. Advisory patterns (best-practice warnings)
   allErrors.push(...checkAdvisoryPatterns(code, lines));
+
+  // 6. Logical / semantic checks
+  allErrors.push(...checkSQLLogical(code));
 
   // Deduplicate (same message + line)
   const seen = new Set();
@@ -2082,6 +2194,62 @@ const checkPythonAdvanced = (lines) => {
         `Line ${lineNum}: "import ${impBadM[1]}" — "${impBadM[1]}" is not a recognised standard library or common package; this may cause a ModuleNotFoundError`,
         `Check the module name spelling, or install it: pip install ${impBadM[1]}`);
     }
+
+    // ── P. return at module level (indent=0, outside any function) ─────────
+    if (indent === 0 && /^\s*return\b/.test(raw)) {
+      push('error', lineNum,
+        `Line ${lineNum}: "return" outside a function — return can only be used inside a function body`,
+        'Move return inside a def function');
+    }
+
+    // ── Q. nonlocal outside a nested function ─────────────────────────────
+    if (/^\s*nonlocal\b/.test(raw) && indent === 0) {
+      push('error', lineNum,
+        `Line ${lineNum}: "nonlocal" at module level — nonlocal can only be used inside a nested function`,
+        'Move nonlocal inside a nested function def');
+    }
+
+    // ── R. Type error in expression: int("abc") + "def" style ─────────────
+    if (/\bint\s*\(\s*["']/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: int() called with a string literal — this will raise ValueError at runtime if the string is not numeric`,
+        'Ensure the string contains digits: int("123") is OK; int("abc") raises ValueError');
+    }
+    if (/\bfloat\s*\(\s*["'][^0-9"'.-]/.test(noComment)) {
+      push('error', lineNum,
+        `Line ${lineNum}: float() called with a non-numeric string — will raise ValueError at runtime`,
+        'Use a numeric string: float("3.14")');
+    }
+
+    // ── S. Undefined variable inside a function body (simplified) ──────────
+    // Scan simple `return x` where x was never assigned in this scope
+    {
+      const retM = noComment.match(/^\s*return\s+([A-Za-z_]\w*)\s*$/);
+      if (retM && indent > 0) {
+        const retVar = retM[1];
+        if (!defined.has(retVar) && !allAssigned.has(retVar) &&
+            !PYTHON_BUILTINS.has(retVar) && !/^[A-Z]/.test(retVar)) {
+          push('warning', lineNum,
+            `Line ${lineNum}: "return ${retVar}" — "${retVar}" may not be defined in this scope`,
+            `Define "${retVar}" before returning it`);
+        }
+      }
+    }
+
+    // ── T. from X import <bad name with dots> ──────────────────────────────
+    {
+      const fromBadM = noComment.match(/^from\s+\S+\s+import\s+(.+)/);
+      if (fromBadM) {
+        fromBadM[1].split(',').forEach(name => {
+          const nm = name.trim().split(/\s+as\s+/)[0].trim();
+          if (/\./.test(nm)) {
+            push('error', lineNum,
+              `Line ${lineNum}: "from X import ${nm}" — cannot use dotted name "${nm}" in import; use "from X.Y import Z" instead`,
+              `Change to: from module.submodule import name`);
+          }
+        });
+      }
+    }
   }
 
   return errors;
@@ -2507,6 +2675,147 @@ const checkRLines = (lines) => {
         }
       }
     }
+
+    // ── 37. Anonymous function result discarded (not assigned) ────────────────
+    if (/^function\s*\(/.test(trimmed)) {
+      push('warning', lineNum,
+        `Line ${lineNum}: Anonymous function result is discarded — assign it or call it: f <- function(...) { }`,
+        'Assign to a variable: myFn <- function(x) { return(x) }');
+    }
+
+    // ── 38. Invalid default parameter: function(x, y=) ────────────────────────
+    {
+      const fnMatch = trimmed.match(/\bfunction\s*\(([^)]*)\)/);
+      if (fnMatch) {
+        const params = fnMatch[1];
+        if (/,\s*=|=\s*,|=\s*\)/.test(params)) {
+          push('error', lineNum,
+            `Line ${lineNum}: Invalid default argument in function definition — a default value must follow "=": function(x, y = 0)`,
+            'Add a default value: function(x, y = NULL) or function(x, y = 0)');
+        }
+        // ── 39. Double comma in function def: function(x,,y) ─────────────────
+        if (/,,/.test(params)) {
+          push('error', lineNum,
+            `Line ${lineNum}: Double comma in function argument list — remove the extra comma: function(x, y)`,
+            'Remove duplicate comma: function(x, y)');
+        }
+        // ── 40. Missing comma between function params: function(x y) ─────────
+        if (/[A-Za-z0-9_.]\s+[A-Za-z_]/.test(params) && !/\b(in|and|or|else)\b/.test(params)) {
+          push('error', lineNum,
+            `Line ${lineNum}: Missing comma between function parameters — use: function(x, y)`,
+            'Add comma between parameters: function(x, y)');
+        }
+      }
+    }
+
+    // ── 41. Extra/wrong arguments for apply-family functions ──────────────────
+    // apply(x, MARGIN, FUN) — anything after FUN is passed as extra named args to FUN.
+    // Extra *unnamed* 4th arg with simple identifiers is almost always a mistake.
+    {
+      const applyM = trimmed.match(/\b(lapply|sapply|vapply|tapply)\s*\(([^)]+)\)/);
+      if (applyM) {
+        const args = applyM[2].split(',').map(s => s.trim()).filter(Boolean);
+        // If 4th+ arg exists and it is a plain identifier (not named), warn
+        if (args.length >= 4 && !/^\w+\s*=/.test(args[3])) {
+          push('warning', lineNum,
+            `Line ${lineNum}: ${applyM[1]}() has an extra unnamed argument "${args[3]}" — extra args are passed to FUN; if unintended, remove it`,
+            `Verify the extra argument is intentional: ${applyM[1]}(X, FUN, ...)`);
+        }
+      }
+    }
+
+    // ── 42. attr() called with wrong number of arguments ──────────────────────
+    // attr(x, which) for read; attr(x, which) <- for write — 3 positional args is wrong
+    {
+      const attrM = trimmed.match(/\battr\s*\(([^)]+)\)/);
+      if (attrM && !/<-\s*$/.test(trimmed)) {
+        const attrArgs = attrM[1].split(',').filter(s => s.trim());
+        if (attrArgs.length > 2) {
+          push('error', lineNum,
+            `Line ${lineNum}: attr() takes exactly 2 arguments: attr(object, which) — got ${attrArgs.length}`,
+            'Use: attr(obj, "name")  or  attr(obj, "name") <- value');
+        }
+      }
+    }
+
+    // ── 43. lm/glm with data= referencing an undefined identifier ─────────────
+    {
+      const modelM = trimmed.match(/\b(lm|glm)\s*\([^)]*,\s*data\s*=\s*([A-Za-z_]\w*)/);
+      if (modelM) {
+        const dataArg = modelM[2];
+        // Check if identifier appears as an assignment target anywhere in the file
+        const isDefined = lines.some(l => new RegExp(`\\b${dataArg}\\s*(<-|=)`).test(l));
+        if (!isDefined && !['df', 'data', 'train', 'test', 'mydata', 'dataset'].includes(dataArg)) {
+          push('warning', lineNum,
+            `Line ${lineNum}: ${modelM[1]}() references data="${dataArg}" which is not defined in this script`,
+            `Assign the data frame first: ${dataArg} <- read.csv("file.csv") or ${dataArg} <- data.frame(...)`);
+        }
+      }
+    }
+
+    // ── 44. predict/summary/print on obviously undefined object ───────────────
+    {
+      const callM = trimmed.match(/^\s*(predict|summary)\s*\(\s*([A-Za-z_]\w*)\s*\)/);
+      if (callM) {
+        const obj = callM[2];
+        const isDefined = lines.some((l, idx) => idx !== i && new RegExp(`\\b${obj}\\s*(<-|=)`).test(l));
+        if (!isDefined && !['fit', 'model', 'mod', 'result', 'lm_fit', 'glm_fit', 'obj'].includes(obj)) {
+          push('warning', lineNum,
+            `Line ${lineNum}: ${callM[1]}() references "${obj}" which does not appear to be defined`,
+            `Define the object first: ${obj} <- lm(y ~ x, data = df)`);
+        }
+      }
+    }
+
+    // ── 45. rbind/cbind called with only scalar values ────────────────────────
+    {
+      const bindM = trimmed.match(/\b(rbind|cbind)\s*\(([^)]+)\)/);
+      if (bindM) {
+        const bindArgs = bindM[2].split(',').map(s => s.trim());
+        // All args are plain numbers (scalars) — probably wrong usage
+        if (bindArgs.length >= 2 && bindArgs.every(a => /^\d+(\.\d+)?$/.test(a))) {
+          push('warning', lineNum,
+            `Line ${lineNum}: ${bindM[1]}() with scalar values — ${bindM[1]}() is for combining vectors/data frames, not scalars`,
+            `Use c() for a simple vector: c(${bindArgs.join(', ')})  or pass named vectors`);
+        }
+      }
+    }
+
+    // ── 46. Unclosed paren in if/while/for condition ──────────────────────────
+    {
+      const ctrlMatch = trimmed.match(/^(if|while|for)\s*\(/);
+      if (ctrlMatch) {
+        const s4 = trimmed.replace(/"[^"]*"|'[^']*'/g, '""');
+        const opens = (s4.match(/\(/g) || []).length - (s4.match(/\)/g) || []).length;
+        // Only flag when the line itself has unclosed parens and no continuation
+        if (opens > 0 && !/[,+|&\\]\s*$/.test(trimmed)) {
+          push('error', lineNum,
+            `Line ${lineNum}: Unclosed parenthesis in ${ctrlMatch[1]}() condition — ${opens} "(" without matching ")"`,
+            `Close the condition: ${ctrlMatch[1]} (condition) { }`);
+        }
+      }
+    }
+
+    // ── 47. return() / stop() / warning() with too many unnamed string args ────
+    {
+      const stopM = trimmed.match(/\b(stop|warning)\s*\(([^)]+)\)/);
+      if (stopM) {
+        const sArgs = stopM[2].split(',').map(s => s.trim());
+        const unnamedStrings = sArgs.filter(a => /^["']/.test(a));
+        if (unnamedStrings.length > 1) {
+          push('warning', lineNum,
+            `Line ${lineNum}: ${stopM[1]}() with multiple string arguments — use paste0() to combine: ${stopM[1]}(paste0("a", "b"))`,
+            `Combine strings: ${stopM[1]}(paste0(${sArgs.join(', ')}))`);
+        }
+      }
+    }
+
+    // ── 48. return / stop / break at module level (outside any function) ──────
+    if (/^\s*return\s*\(/.test(raw) && braceDepth === 0) {
+      push('error', lineNum,
+        `Line ${lineNum}: return() called outside a function — return() can only be used inside a function body`,
+        'Move return() inside a function: myFn <- function(x) { return(x) }');
+    }
   });
 
   // Unbalanced braces (whole-file)
@@ -2606,14 +2915,34 @@ const fixRCode = (code) => {
     // Python def → R function assignment
     line = line.replace(/^(\s*)def\s+(\w+)\s*\(([^)]*)\)\s*:?\s*$/, '$1$2 <- function($3) {');
 
+    // Fix double comma in function args: function(x,,y) → function(x, y)
+    line = line.replace(/\bfunction\s*\(([^)]*)\)/, (m, params) => {
+      const fixed2 = params.replace(/,\s*,/g, ',').replace(/,\s*\)/g, ')').replace(/^\s*,/, '');
+      return `function(${fixed2})`;
+    });
+
+    // Fix missing comma between function params: function(x y) → function(x, y)
+    line = line.replace(/\bfunction\s*\(([^)]*)\)/, (m, params) => {
+      const fixed3 = params.replace(/([A-Za-z0-9_.])\s+([A-Za-z_])/g, '$1, $2');
+      return `function(${fixed3})`;
+    });
+
     // Unclosed paren/bracket on simple R assignment: x <- c(1,2,3 → x <- c(1,2,3)
     if (/^\s*\w+\s*(<-|=)\s*[(\[c(]/.test(line) && !/[,\\]\s*$/.test(line)) {
       const eqIdx = line.search(/(<-|=)/);
       const expr = line.slice(eqIdx + 2);
-      const opens  = (expr.match(/\(/g) || []).length - (expr.match(/\)/g) || []).length;
-      const square = (expr.match(/\[/g) || []).length - (expr.match(/\]/g) || []).length;
+      const noStr = expr.replace(/"[^"]*"|'[^']*'/g, '""');
+      const opens  = (noStr.match(/\(/g) || []).length - (noStr.match(/\)/g) || []).length;
+      const square = (noStr.match(/\[/g) || []).length - (noStr.match(/\]/g) || []).length;
       if (opens > 0)  line = line.trimEnd() + ')'.repeat(opens);
       else if (square > 0) line = line.trimEnd() + ']'.repeat(square);
+    }
+
+    // Unclosed paren in control flow / function calls (non-assignment lines)
+    if (!/^\s*\w+\s*(<-|=)/.test(line) && !/[,\\+|&]\s*$/.test(line) && /\(/.test(line)) {
+      const noStr = line.replace(/"[^"]*"|'[^']*'/g, '""');
+      const opens = (noStr.match(/\(/g) || []).length - (noStr.match(/\)/g) || []).length;
+      if (opens > 0 && opens <= 3) line = line.trimEnd() + ')'.repeat(opens);
     }
 
     // Unterminated string literal — walk chars and close open quote

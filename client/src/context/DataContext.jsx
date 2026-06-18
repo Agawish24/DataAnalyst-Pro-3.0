@@ -46,11 +46,13 @@ export const DataProvider = ({ children }) => {
   };
 
   const selectDataset = async (dataset) => {
+    const id = typeof dataset === 'number' ? dataset : dataset?.id;
+    if (!id) { setActiveDataset(null); return; }
     try {
-      const res = await api.get(`/datasets/${dataset.id}`);
+      const res = await api.get(`/datasets/${id}`);
       setActiveDataset(res.data);
     } catch {
-      setActiveDataset(dataset);
+      setActiveDataset(typeof dataset === 'object' ? dataset : null);
     }
   };
 
