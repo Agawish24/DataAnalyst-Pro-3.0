@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "caches": {
+    "npm": {
+      "directory": "/root/.npm",
+      "type": "shared"
+    },
+    "pip": {
+      "directory": "/opt/pip-cache",
+      "type": "shared"
+    }
+  },
+  "steps": [
+    {
+      "name": "install",
+      "caches": ["...", "pip"]
+    },
+    {
+      "name": "build",
+      "caches": ["...", "npm", "pip"]
+    }
+  ]
+}
