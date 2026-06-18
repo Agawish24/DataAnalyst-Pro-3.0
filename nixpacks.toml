@@ -1,12 +1,12 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "nodejs_20"]
 
 [phases.build]
 cmds = [
   "npm install --prefix client --include=dev",
   "npm run build --prefix client",
   "npm install --prefix server --omit=dev",
-  "pip3 install -r python-service/requirements.txt"
+  "python3 -m pip install --break-system-packages -r python-service/requirements.txt"
 ]
 
 [start]
