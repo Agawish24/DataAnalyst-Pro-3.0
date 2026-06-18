@@ -47,7 +47,6 @@ const authenticate = async (req, res, next) => {
     req.user = result.rows[0];
     next();
   } catch (err) {
-    console.error('[auth] catch error:', err.message, err.stack);
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
