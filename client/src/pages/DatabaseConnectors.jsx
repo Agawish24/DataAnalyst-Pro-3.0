@@ -3,7 +3,8 @@ import api from '../api/client';
 import toast from 'react-hot-toast';
 import {
   Database, Plus, Play, Trash2, CheckCircle2, XCircle, RefreshCw,
-  Globe, Code2, FlaskConical, ToggleLeft, ToggleRight, ChevronRight, Info
+  Globe, Code2, FlaskConical, ToggleLeft, ToggleRight, ChevronRight, Info,
+  Download, ChevronLeft, ChevronRight as ChevronRightIcon, Import
 } from 'lucide-react';
 
 const COLORS = {
@@ -12,12 +13,12 @@ const COLORS = {
 };
 
 const DEMO_SQL = {
-  mysql:      'SELECT * FROM orders LIMIT 10',
-  postgresql: 'SELECT * FROM users LIMIT 10',
-  bigquery:   'SELECT * FROM analytics.pageviews LIMIT 10',
-  redshift:   'SELECT * FROM public.fact_sales LIMIT 10',
-  snowflake:  'SELECT * FROM SALES.TRANSACTIONS LIMIT 10',
-  csv_url:    'SELECT * FROM csv_data LIMIT 10',
+  mysql:      'SELECT * FROM orders LIMIT 100',
+  postgresql: 'SELECT * FROM users LIMIT 100',
+  bigquery:   'SELECT * FROM analytics.pageviews LIMIT 100',
+  redshift:   'SELECT * FROM public.fact_sales LIMIT 100',
+  snowflake:  'SELECT * FROM SALES.TRANSACTIONS LIMIT 100',
+  csv_url:    'SELECT * FROM csv_data LIMIT 100',
 };
 
 const inp = {
@@ -31,7 +32,7 @@ export default function DatabaseConnectors() {
   const [types, setTypes] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [querySQL, setQuerySQL] = useState('SELECT * FROM orders LIMIT 10');
+  const [querySQL, setQuerySQL] = useState('SELECT * FROM orders LIMIT 100');
   const [queryResult, setQueryResult] = useState(null);
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
@@ -39,6 +40,11 @@ export default function DatabaseConnectors() {
   const [testing, setTesting] = useState(null);
   const [running, setRunning] = useState(false);
   const [togglingDemo, setTogglingDemo] = useState(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 500;
+  const [importing, setImporting] = useState(false);
+  const [importName, setImportName] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => { load(); loadTypes(); }, []);
 
@@ -93,8 +99,9 @@ export default function DatabaseConnectors() {
           const newSelected = { ...updated, demo_mode: enable };
           setSelected(newSelected);
           loadSchema(id);
-          setQuerySQL(DEMO_SQL[updated.type] || 'SELECT * FROM orders LIMIT 10');
+          setQuerySQL(DEMO_SQL[updated.type] || 'SELECT * FROM orders LIMIT 100');
           setQueryResult(null);
+          setPage(0);
         }
       }
     } catch { toast.error('Failed to toggle demo mode'); }
@@ -104,7 +111,9 @@ export default function DatabaseConnectors() {
   const selectConnector = async (c) => {
     setSelected(c);
     setQueryResult(null);
-    setQuerySQL(c.demo_mode ? (DEMO_SQL[c.type] || 'SELECT * FROM orders LIMIT 10') : 'SELECT * FROM table_name LIMIT 10');
+    setPage(0);
+    setShowImport(false);
+    setQuerySQL(c.demo_mode ? (DEMO_SQL[c.type] || 'SELECT * FROM orders LIMIT 100') : 'SELECT * FROM table_name LIMIT 100');
     loadSchema(c.id);
   };
 
@@ -119,15 +128,35 @@ export default function DatabaseConnectors() {
     } finally { setSchemaLoading(false); }
   };
 
-  const runQuery = async () => {
+  const runQuery = async (pageNum = 0) => {
     if (!selected) return;
     setRunning(true);
+    setPage(pageNum);
     try {
-      const r = await api.post(`/connectors/${selected.id}/query`, { sql: querySQL });
+      const r = await api.post(`/connectors/${selected.id}/query`, {
+        sql: querySQL,
+        limit: PAGE_SIZE,
+        offset: pageNum * PAGE_SIZE,
+      });
       setQueryResult(r.data);
-      toast.success(`${r.data.rowCount} row${r.data.rowCount !== 1 ? 's' : ''} returned${r.data.demo ? ' (demo data)' : ''}`);
+      const msg = r.data.totalRows > PAGE_SIZE
+        ? `${r.data.totalRows.toLocaleString()} total rows — showing ${pageNum * PAGE_SIZE + 1}–${Math.min((pageNum + 1) * PAGE_SIZE, r.data.totalRows).toLocaleString()}${r.data.demo ? ' (demo data)' : ''}`
+        : `${r.data.rowCount} row${r.data.rowCount !== 1 ? 's' : ''} returned${r.data.demo ? ' (demo data)' : ''}`;
+      toast.success(msg);
     } catch (e) { toast.error(e.response?.data?.error || 'Query failed'); }
     finally { setRunning(false); }
+  };
+
+  const importToDataset = async () => {
+    if (!importName.trim()) return toast.error('Dataset name is required');
+    setImporting(true);
+    try {
+      const r = await api.post(`/connectors/${selected.id}/import`, { sql: querySQL, name: importName.trim() });
+      toast.success(`Imported ${r.data.rowCount.toLocaleString()} rows as "${r.data.name}" (dataset #${r.data.datasetId})`);
+      setShowImport(false);
+      setImportName('');
+    } catch (e) { toast.error(e.response?.data?.error || 'Import failed'); }
+    finally { setImporting(false); }
   };
 
   const del = async (id) => {
@@ -138,6 +167,7 @@ export default function DatabaseConnectors() {
   };
 
   const typeInfo = types.find(t => t.type === form.type);
+  const totalPages = queryResult ? Math.ceil(queryResult.totalRows / PAGE_SIZE) : 0;
 
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
@@ -147,7 +177,9 @@ export default function DatabaseConnectors() {
           <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f3f4f6', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
             <Database size={22} color="#6366f1" /> Database Connectors
           </h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: 13 }}>Connect to PostgreSQL, MySQL, BigQuery, Redshift, Snowflake · Demo mode for testing without credentials</p>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: 13 }}>
+            Connect to PostgreSQL, MySQL, BigQuery, Redshift, Snowflake · Paginated queries up to 10k rows · Import to Dataset for ML analysis
+          </p>
         </div>
         <button onClick={() => setShowAdd(true)}
           style={{ padding: '9px 18px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: 'white', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
@@ -281,7 +313,7 @@ export default function DatabaseConnectors() {
                   ? schema.tables.map(t => (
                     <div key={t.table} style={{ marginBottom: 12 }}>
                       <div style={{ color: '#8b5cf6', fontWeight: 700, fontSize: 12, fontFamily: 'monospace', marginBottom: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
-                        onClick={() => { setQuerySQL(`SELECT * FROM ${t.table} LIMIT 20`); }}>
+                        onClick={() => { setQuerySQL(`SELECT * FROM ${t.table} LIMIT 100`); }}>
                         <ChevronRight size={12} /> {t.table}
                         <span style={{ color: '#4b5563', fontWeight: 400, fontSize: 10 }}>({t.columns.length} cols)</span>
                       </div>
@@ -303,54 +335,113 @@ export default function DatabaseConnectors() {
 
             {/* Query editor */}
             <div style={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '11px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ padding: '11px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
                   <Code2 size={13} color="#6b7280" />
                   Query {selected.name}
                   {selected.demo_mode && <span style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', padding: '1px 7px', borderRadius: 5, fontSize: 10, fontWeight: 700 }}>DEMO</span>}
                 </span>
-                <button onClick={runQuery} disabled={running}
-                  style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: running ? '#374151' : '#10b981', color: 'white', cursor: running ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Play size={12} /> {running ? 'Running…' : 'Run'}
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setShowImport(v => !v); setImportName(''); }}
+                    title="Import query results as a dataset for ML analysis"
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.07)', color: '#10b981', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Download size={12} /> Import to Dataset
+                  </button>
+                  <button onClick={() => runQuery(0)} disabled={running}
+                    style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: running ? '#374151' : '#10b981', color: 'white', cursor: running ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Play size={12} /> {running ? 'Running…' : 'Run'}
+                  </button>
+                </div>
               </div>
+
+              {/* Import to Dataset panel */}
+              {showImport && (
+                <div style={{ padding: '12px 16px', background: 'rgba(16,185,129,0.05)', borderBottom: '1px solid rgba(16,185,129,0.15)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <Download size={14} color="#10b981" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: '#6ee7b7', fontSize: 12, marginBottom: 6, fontWeight: 600 }}>
+                      Import query results as a dataset — then use AutoML, Pivot, Charts, and all analysis features
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        value={importName}
+                        onChange={e => setImportName(e.target.value)}
+                        placeholder="Dataset name (e.g. MySQL Orders Q1 2024)"
+                        style={{ ...inp, flex: 1, padding: '8px 12px', fontSize: 13 }}
+                      />
+                      <button onClick={importToDataset} disabled={importing}
+                        style={{ padding: '8px 16px', borderRadius: 7, border: 'none', background: importing ? '#374151' : '#10b981', color: 'white', cursor: importing ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>
+                        {importing ? 'Importing…' : 'Import'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <textarea
                 value={querySQL}
                 onChange={e => setQuerySQL(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runQuery(); }}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runQuery(0); }}
                 rows={5}
                 spellCheck={false}
                 style={{ width: '100%', background: '#0d0d1a', border: 'none', color: '#86efac', fontFamily: 'Monaco, Consolas, monospace', fontSize: 13, padding: 14, resize: 'vertical', outline: 'none', boxSizing: 'border-box', minHeight: 100 }}
               />
-              <div style={{ padding: '5px 14px', background: '#0d0d1a', borderTop: '1px solid rgba(255,255,255,0.04)', color: '#374151', fontSize: 10 }}>Ctrl+Enter to run · SELECT queries only</div>
+              <div style={{ padding: '5px 14px', background: '#0d0d1a', borderTop: '1px solid rgba(255,255,255,0.04)', color: '#374151', fontSize: 10 }}>
+                Ctrl+Enter to run · SELECT only · Paginated {PAGE_SIZE} rows/page · Max 10,000 rows per query
+              </div>
             </div>
 
             {/* Query results */}
             {queryResult && (
               <div style={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>
-                    Results — <span style={{ color: '#10b981' }}>{queryResult.rowCount} rows</span>
-                  </span>
-                  {queryResult.demo && (
-                    <span style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>SAMPLE DATA</span>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>
+                      Results — <span style={{ color: '#10b981' }}>{queryResult.totalRows?.toLocaleString() || queryResult.rowCount} rows{queryResult.totalRows > queryResult.rowCount ? ' total' : ''}</span>
+                    </span>
+                    {queryResult.demo && (
+                      <span style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>SAMPLE DATA</span>
+                    )}
+                    {queryResult.hasMore && (
+                      <span style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600 }}>
+                        Showing page {page + 1} of {totalPages}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button onClick={() => runQuery(page - 1)} disabled={page === 0 || running}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: page === 0 ? '#374151' : '#9ca3af', cursor: page === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <ChevronLeft size={14} />
+                      </button>
+                      <span style={{ color: '#6b7280', fontSize: 12 }}>
+                        {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, queryResult.totalRows).toLocaleString()} of {queryResult.totalRows.toLocaleString()}
+                      </span>
+                      <button onClick={() => runQuery(page + 1)} disabled={!queryResult.hasMore || running}
+                        style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: !queryResult.hasMore ? '#374151' : '#9ca3af', cursor: !queryResult.hasMore ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <ChevronRightIcon size={14} />
+                      </button>
+                    </div>
                   )}
                 </div>
-                <div style={{ overflowX: 'auto', maxHeight: 320 }}>
+
+                <div style={{ overflowX: 'auto', maxHeight: 400 }}>
                   {queryResult.rows?.length > 0 ? (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
                           {Object.keys(queryResult.rows[0]).map(k => (
-                            <th key={k} style={{ padding: '8px 12px', textAlign: 'left', color: '#6b7280', background: '#0d0d1a', borderBottom: '1px solid rgba(255,255,255,0.07)', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k}</th>
+                            <th key={k} style={{ padding: '8px 12px', textAlign: 'left', color: '#6b7280', background: '#0d0d1a', borderBottom: '1px solid rgba(255,255,255,0.07)', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, position: 'sticky', top: 0 }}>{k}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {queryResult.rows.slice(0, 100).map((row, i) => (
+                        {queryResult.rows.map((row, i) => (
                           <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                             {Object.values(row).map((v, j) => (
-                              <td key={j} style={{ padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: v !== null ? '#e2e8f0' : '#374151', whiteSpace: 'nowrap' }}>
+                              <td key={j} style={{ padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: v !== null ? '#e2e8f0' : '#374151', whiteSpace: 'nowrap', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {v !== null ? String(v) : <span style={{ fontStyle: 'italic' }}>null</span>}
                               </td>
                             ))}
@@ -362,6 +453,37 @@ export default function DatabaseConnectors() {
                     <div style={{ padding: 24, textAlign: 'center', color: '#4b5563', fontSize: 13 }}>No rows returned</div>
                   )}
                 </div>
+
+                {/* Bottom pagination */}
+                {totalPages > 1 && (
+                  <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => runQuery(0)} disabled={page === 0 || running}
+                      style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: page === 0 ? '#374151' : '#9ca3af', cursor: page === 0 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                      First
+                    </button>
+                    <button onClick={() => runQuery(page - 1)} disabled={page === 0 || running}
+                      style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: page === 0 ? '#374151' : '#9ca3af', cursor: page === 0 ? 'not-allowed' : 'pointer' }}>
+                      <ChevronLeft size={14} />
+                    </button>
+                    {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
+                      const p = totalPages <= 7 ? i : Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
+                      return (
+                        <button key={p} onClick={() => runQuery(p)} disabled={running}
+                          style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${p === page ? '#6366f1' : 'rgba(255,255,255,0.1)'}`, background: p === page ? 'rgba(99,102,241,0.2)' : 'transparent', color: p === page ? '#818cf8' : '#6b7280', cursor: 'pointer', fontSize: 12, minWidth: 32 }}>
+                          {p + 1}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => runQuery(page + 1)} disabled={!queryResult.hasMore || running}
+                      style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: !queryResult.hasMore ? '#374151' : '#9ca3af', cursor: !queryResult.hasMore ? 'not-allowed' : 'pointer' }}>
+                      <ChevronRightIcon size={14} />
+                    </button>
+                    <button onClick={() => runQuery(totalPages - 1)} disabled={page === totalPages - 1 || running}
+                      style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: page === totalPages - 1 ? '#374151' : '#9ca3af', cursor: page === totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                      Last
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -406,20 +528,40 @@ export default function DatabaseConnectors() {
               {!form.demo && typeInfo?.fields.map(field => (
                 <div key={field}>
                   <label style={{ color: '#9ca3af', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                    {field.replace(/([A-Z])/g, ' $1').trim()}
+                    {field === 'keyFileContent' ? 'Service Account Key (JSON)' : field.replace(/([A-Z])/g, ' $1').trim()}
                     {typeInfo.optional?.includes(field) && <span style={{ color: '#374151', fontWeight: 400 }}> (optional)</span>}
                   </label>
-                  <input
-                    type={field === 'password' ? 'password' : field === 'keyFileContent' ? 'text' : 'text'}
-                    value={form.config[field] || ''}
-                    onChange={e => setForm(f => ({ ...f, config: { ...f.config, [field]: e.target.value } }))}
-                    placeholder={field === 'port' ? (form.type === 'mysql' ? '3306' : form.type === 'redshift' ? '5439' : '5432') : field === 'keyFileContent' ? 'Paste service account JSON…' : ''}
-                    style={{ ...inp, fontFamily: field === 'keyFileContent' ? 'monospace' : 'inherit' }}
-                  />
+                  {field === 'keyFileContent' ? (
+                    <textarea
+                      rows={6}
+                      value={form.config[field] || ''}
+                      onChange={e => setForm(f => ({ ...f, config: { ...f.config, [field]: e.target.value } }))}
+                      placeholder={'Paste the full content of your Google service account JSON key file here…\n{\n  "type": "service_account",\n  "project_id": "...",\n  "private_key": "...",\n  ...\n}'}
+                      style={{ ...inp, fontFamily: 'monospace', fontSize: 12, resize: 'vertical', minHeight: 130 }}
+                    />
+                  ) : (
+                    <input
+                      type={field === 'password' ? 'password' : 'text'}
+                      value={form.config[field] || ''}
+                      onChange={e => setForm(f => ({ ...f, config: { ...f.config, [field]: e.target.value } }))}
+                      placeholder={field === 'port' ? (form.type === 'mysql' ? '3306' : form.type === 'redshift' ? '5439' : '5432') : field === 'projectId' ? 'your-gcp-project-id' : ''}
+                      style={inp}
+                    />
+                  )}
                 </div>
               ))}
 
-              {!form.demo && (
+              {/* BigQuery helper note */}
+              {!form.demo && form.type === 'bigquery' && (
+                <div style={{ background: 'rgba(66,133,244,0.07)', border: '1px solid rgba(66,133,244,0.2)', borderRadius: 8, padding: '9px 12px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <Info size={13} color="#60a5fa" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ color: '#60a5fa', fontSize: 12 }}>
+                    Create a service account in Google Cloud Console → IAM → Service Accounts. Grant <strong>BigQuery Data Viewer</strong> + <strong>BigQuery Job User</strong> roles. Download the JSON key file and paste it above.
+                  </span>
+                </div>
+              )}
+
+              {!form.demo && form.type !== 'bigquery' && (
                 <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '9px 12px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <Info size={13} color="#818cf8" style={{ flexShrink: 0, marginTop: 1 }} />
                   <span style={{ color: '#818cf8', fontSize: 12 }}>

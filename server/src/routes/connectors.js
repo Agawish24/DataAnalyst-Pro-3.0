@@ -400,11 +400,77 @@ router.post('/:id/test', authenticate, async (req, res) => {
 router.post('/:id/query', authenticate, async (req, res) => {
   try {
     const { sql } = req.body;
+    const limit  = Math.min(10000, Math.max(1, parseInt(req.query.limit  || req.body.limit)  || 500));
+    const offset = Math.max(0, parseInt(req.query.offset || req.body.offset) || 0);
     if (!sql) return res.status(400).json({ error: 'sql is required' });
     const r = await pool.query('SELECT * FROM connectors WHERE id=$1', [req.params.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Connector not found' });
+    const allRows = await queryConnector(r.rows[0], sql);
+    const page = allRows.slice(offset, offset + limit);
+    res.json({
+      rows: page,
+      rowCount: page.length,
+      totalRows: allRows.length,
+      offset,
+      limit,
+      hasMore: offset + limit < allRows.length,
+      connector: r.rows[0].name,
+      demo: !!r.rows[0].config?.demo,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Import connector query result as a new dataset for ML analysis
+router.post('/:id/import', authenticate, async (req, res) => {
+  try {
+    const { sql, name } = req.body;
+    if (!sql || !name) return res.status(400).json({ error: 'sql and name are required' });
+    const r = await pool.query('SELECT * FROM connectors WHERE id=$1', [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Connector not found' });
     const rows = await queryConnector(r.rows[0], sql);
-    res.json({ rows, rowCount: rows.length, connector: r.rows[0].name, demo: !!r.rows[0].config?.demo });
+    if (!rows.length) return res.status(400).json({ error: 'Query returned no rows — nothing to import' });
+
+    // Infer schema from first row
+    const cols = Object.keys(rows[0]);
+    const schema = cols.map(col => {
+      const sample = rows.find(r => r[col] !== null && r[col] !== undefined)?.[col];
+      let type = 'text';
+      if (typeof sample === 'number') type = Number.isInteger(sample) ? 'integer' : 'float';
+      else if (typeof sample === 'boolean') type = 'boolean';
+      else if (sample instanceof Date || (typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}/.test(sample))) type = 'date';
+      return { name: col, type };
+    });
+
+    // Create dataset record
+    const dsRes = await pool.query(
+      `INSERT INTO datasets (name, description, row_count, schema, uploaded_by, source)
+       VALUES ($1,$2,$3,$4,$5,'connector') RETURNING id`,
+      [name, `Imported from ${r.rows[0].name} connector`, rows.length, JSON.stringify(schema), req.user.id]
+    );
+    const datasetId = dsRes.rows[0].id;
+
+    // Create data table
+    const safeCols = cols.map(c => `"${c.replace(/"/g, '""')}" TEXT`).join(', ');
+    await pool.query(`CREATE TABLE IF NOT EXISTS data_${datasetId} (row_index SERIAL, ${safeCols})`);
+
+    // Bulk insert in batches of 500
+    const BATCH = 500;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      const vals = [];
+      const params = [];
+      batch.forEach((row, bi) => {
+        const pStart = bi * cols.length;
+        vals.push(`(${cols.map((_, ci) => `$${pStart + ci + 1}`).join(', ')})`);
+        cols.forEach(col => params.push(row[col] !== null && row[col] !== undefined ? String(row[col]) : null));
+      });
+      await pool.query(
+        `INSERT INTO data_${datasetId} (${cols.map(c => `"${c.replace(/"/g, '""')}"`).join(', ')}) VALUES ${vals.join(', ')}`,
+        params
+      );
+    }
+
+    res.status(201).json({ datasetId, name, rowCount: rows.length, columns: schema.length, schema });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
