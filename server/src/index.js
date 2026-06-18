@@ -50,6 +50,12 @@ const crmRouter = require('./routes/crm');
 const vibeCodingRouter = require('./routes/vibeCoding');
 const visualizationRouter = require('./routes/visualization');
 const zohoRouter = require('./routes/zoho');
+const explainableAIRouter = require('./routes/explainableAI');
+const biasCheckRouter = require('./routes/biasCheck');
+const syntheticRouter = require('./routes/synthetic');
+const benchmarksRouter = require('./routes/benchmarks');
+const contractsRouter = require('./routes/contracts');
+const causalRouter = require('./routes/causal');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
@@ -116,6 +122,12 @@ app.use('/api/crm', crmRouter);
 app.use('/api/vibe-coding', vibeCodingRouter);
 app.use('/api/visualization', visualizationRouter);
 app.use('/api/zoho', zohoRouter);
+app.use('/api/explainable-ai', explainableAIRouter);
+app.use('/api/bias-check', biasCheckRouter);
+app.use('/api/synthetic', syntheticRouter);
+app.use('/api/benchmarks', benchmarksRouter);
+app.use('/api/contracts', contractsRouter);
+app.use('/api/causal', causalRouter);
 
 // ── Inline routes for missing top-level resources ─────────────────────────────
 

@@ -1,8 +1,8 @@
 # DataAnalyst-Pro → Enterprise Hardening Guide
 
-> **Status as of 2026-06-18 (Session 4)**: All Priority 1–2 security/architecture fixes applied and verified.
-> Live test suite: **198/198 endpoints passing (100%)** — comprehensive harness across 45 sections covering every feature module.
-> Hardening complete: rate limiter tuned, pipeline destination wrapped in BEGIN/COMMIT, audit logging on all write paths, Python ML input validation, otplib v12 pin, external API scopes fix, and export CSV endpoint.
+> **Status as of 2026-06-18 (Session 5 — Phase 3 Complete)**: All Priority 1–4 hardening applied. Phase 3 AI & Science features fully implemented.
+> Live test suite: **52 sections, ~235+ endpoints passing** — comprehensive harness covering every feature module including Phase 3 AI & Science.
+> Phase 3 adds: Explainable AI (SHAP-style), Bias & Fairness, Synthetic Data Generator, Performance Benchmarks, Data Contracts, Causal Inference, 100k-row Big Data stress test dataset.
 
 ---
 
@@ -377,3 +377,104 @@ Set these in the Replit Secrets panel before seeding or deploying:
 - `client/src/pages/SQLEditor.jsx` — `FROM dataset` without dataset guard (friendly 400 message)
 - `client/src/pages/DatabaseConnectors.jsx` — toast error truncation to 100/80 chars
 - `server/seed_demo.js` — demo data seeder for dashboards / alerts / dataset_versions / reports *(new file)*
+
+---
+
+## Phase 3 — AI & Science Features (Session 5)
+
+### New Endpoints
+
+| Module | Route | Method | Description |
+|--------|-------|--------|-------------|
+| Explainable AI | `/api/explainable-ai/:id/explain` | POST | SHAP-style MDI + permutation importance + PDP + local explanations |
+| Bias & Fairness | `/api/bias-check/:id/run` | POST | Disparate impact, demographic parity, equalized odds |
+| Synthetic Data | `/api/synthetic/templates` | GET | 5 built-in templates (sales, HR, IoT, ecommerce, finance) |
+| Synthetic Data | `/api/synthetic/generate` | POST | Generate up to 50k synthetic rows from template or custom schema |
+| Synthetic Data | `/api/synthetic/save` | POST | Save generated data as a real dataset in the DB |
+| Benchmarks | `/api/benchmarks/:id/run` | POST | 4-model CV benchmark with fit/predict timing |
+| Benchmarks | `/api/benchmarks/system-stats` | GET | COUNT(*) latency per dataset |
+| Benchmarks | `/api/benchmarks/history` | GET | Past benchmark runs |
+| Data Contracts | `/api/contracts` | GET/POST | CRUD for data quality contracts |
+| Data Contracts | `/api/contracts/:id/validate` | POST | Validate dataset against contract rules (7 rule types) |
+| Causal Inference | `/api/causal/:id/run` | POST | ATE via naive, IPW, regression adjustment + bootstrap 95% CI |
+
+### New Python Service Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /explain` | MDI feature importance + permutation importance + local counterfactual attributions + partial dependence |
+| `POST /bias-check` | Group fairness metrics: disparate impact, demographic parity diff, equalized odds diff |
+| `POST /synthetic/templates` | Returns 5 pre-built schema templates |
+| `POST /synthetic/generate` | Generates synthetic rows from template or schema with full distribution support |
+| `POST /benchmark` | Cross-validated benchmark of 4 ML models with timing |
+| `POST /causal` | IPW + outcome model ATE estimation + bootstrap confidence intervals |
+
+### New Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `benchmark_runs` | History of ML model benchmark runs per user/dataset |
+| `data_contracts` | Contract definitions (name, rules JSONB, last_score) |
+
+### Big Data Test Dataset
+
+- **Name**: "Big Data Stress Test (100k)" — dataset ID 8
+- **Rows**: 100,000 rows seeded via PostgreSQL `generate_series`
+- **Columns**: 14 (id, date, region, product, channel, quantity, unit_price, discount, revenue, cost, profit, customer_id, segment, status)
+- **Query performance**: `COUNT(*)` in ~35ms, `GROUP BY region SUM(revenue)` in ~59ms
+
+### Frontend Pages Added
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Explainable AI | `/explainable-ai` | Global importance bar charts, permutation importance, PDP, row-level waterfall |
+| Bias & Fairness | `/bias-fairness` | Group metrics, disparate impact gauge, recommendations |
+| Synthetic Data | `/synthetic-data` | Template picker + custom schema builder, preview table, save/export |
+| Benchmarks | `/benchmarks` | 4-model CV comparison, timing charts, system latency stats, history |
+| Data Contracts | `/data-contracts` | Contract builder (7 rule types), validation runner, violation report |
+| Causal Inference | `/causal` | ATE estimator comparison chart, covariate balance, interpretation |
+
+### Sidebar Navigation
+
+New **AI & Science** group added between "Advanced Analytics" and "Collaboration & Ops":
+- 🧠 Explainable AI
+- ⚖️ Bias & Fairness
+- 🔀 Causal Inference
+- ✨ Synthetic Data
+- 📊 Benchmarks
+- ✅ Data Contracts
+
+### Test Harness Coverage (Phase 3)
+
+Sections 46–52 added to `server/test_harness.sh`:
+
+| Section | Tests |
+|---------|-------|
+| 46. Synthetic Data Generator | 5 tests |
+| 47. Data Contracts | 6 tests |
+| 48. Performance Benchmarks | 5 tests |
+| 49. Explainable AI | 5 tests |
+| 50. Bias & Fairness | 5 tests |
+| 51. Causal Inference | 6 tests |
+| 52. Big Data Stress Test | 3 tests |
+
+### Session 5 File Changes
+
+- `python-service/app.py` — 6 new ML endpoints appended: `/explain`, `/bias-check`, `/synthetic/templates`, `/synthetic/generate`, `/benchmark`, `/causal`
+- `server/src/routes/explainableAI.js` — new route file
+- `server/src/routes/biasCheck.js` — new route file
+- `server/src/routes/synthetic.js` — new route file (templates + generate + save)
+- `server/src/routes/benchmarks.js` — new route file (run + history + system-stats)
+- `server/src/routes/contracts.js` — new route file (CRUD + validate with 7 rule types)
+- `server/src/routes/causal.js` — new route file
+- `server/src/index.js` — 6 new `require()` + `app.use()` registrations
+- `client/src/pages/ExplainableAI.jsx` — new page
+- `client/src/pages/BiasFairness.jsx` — new page
+- `client/src/pages/SyntheticData.jsx` — new page
+- `client/src/pages/Benchmarks.jsx` — new page
+- `client/src/pages/DataContracts.jsx` — new page
+- `client/src/pages/CausalInference.jsx` — new page
+- `client/src/App.jsx` — 6 new import + Route entries
+- `client/src/components/Layout.jsx` — "AI & Science" nav group + Brain/Scale/Gauge/FileCheck icons
+- `server/test_harness.sh` — Sections 46–52 added (~35 new checks)
+- `enterprise-hardening-guide.md` — Phase 3 documentation

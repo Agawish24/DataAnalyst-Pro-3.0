@@ -1170,5 +1170,544 @@ def check_syntax():
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
+# ── Explainable AI (SHAP-style permutation importance) ────────────────────────
+@app.route('/explain', methods=['POST'])
+def explain():
+    try:
+        from sklearn.inspection import permutation_importance as sk_perm_imp
+        from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+        body = request.get_json() or {}
+        rows = body.get('rows', [])
+        target_col = body.get('target_col', '')
+        feature_cols = body.get('feature_cols', [])
+        task_type = body.get('task_type', 'auto')
+
+        df = pd.DataFrame(rows)
+        validate_df(df, min_rows=10, context='explain')
+        if target_col not in df.columns:
+            return jsonify({'error': f'Target column "{target_col}" not found'}), 400
+
+        df = df.dropna(subset=[target_col])
+        if not feature_cols:
+            feature_cols = [c for c in df.columns if c != target_col]
+        feature_cols = [c for c in feature_cols if c in df.columns]
+
+        X = df[feature_cols].copy()
+        y = df[target_col].copy()
+        for col in X.select_dtypes(include='object').columns:
+            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+        X = X.fillna(X.mean(numeric_only=True)).fillna(0)
+
+        unique_vals = y.nunique()
+        if task_type == 'auto':
+            task_type = 'classification' if (unique_vals <= 10 or not pd.to_numeric(y, errors='coerce').notna().all()) else 'regression'
+
+        if task_type == 'classification':
+            le_y = LabelEncoder()
+            y_enc = le_y.fit_transform(y.astype(str))
+            model = RandomForestClassifier(n_estimators=80, random_state=42)
+        else:
+            y_enc = pd.to_numeric(y, errors='coerce').fillna(0).values
+            model = RandomForestRegressor(n_estimators=80, random_state=42)
+
+        model.fit(X, y_enc)
+
+        # Global feature importance (MDI)
+        importances = model.feature_importances_
+        global_importance = sorted([
+            {'feature': col, 'importance': round(float(imp), 4), 'pct': round(float(imp) * 100, 2)}
+            for col, imp in zip(feature_cols, importances)
+        ], key=lambda x: x['importance'], reverse=True)
+
+        # Permutation importance on a validation sample
+        n_sample = min(300, len(X))
+        X_s = X.iloc[:n_sample]
+        y_s = y_enc[:n_sample]
+        perm = sk_perm_imp(model, X_s, y_s, n_repeats=5, random_state=42)
+        perm_importance = sorted([
+            {'feature': col, 'importance': round(float(m), 4), 'std': round(float(s), 4)}
+            for col, m, s in zip(feature_cols, perm.importances_mean, perm.importances_std)
+        ], key=lambda x: x['importance'], reverse=True)
+
+        # Local explanations for first 5 rows (counterfactual mean-substitution)
+        local_explanations = []
+        X_means = X.mean()
+        for i in range(min(5, len(X))):
+            row_x = X.iloc[[i]]
+            pred = float(model.predict(row_x)[0])
+            contribs = []
+            for col in feature_cols:
+                perturbed = row_x.copy()
+                perturbed[col] = float(X_means[col])
+                delta = pred - float(model.predict(perturbed)[0])
+                contribs.append({'feature': col, 'value': float(row_x[col].iloc[0]), 'contribution': round(delta, 4)})
+            contribs.sort(key=lambda x: abs(x['contribution']), reverse=True)
+            local_explanations.append({
+                'row': i,
+                'prediction': round(pred, 4),
+                'actual': str(df[target_col].iloc[i]),
+                'contributions': contribs[:8],
+            })
+
+        # Partial dependence for top 3 features
+        top3 = [g['feature'] for g in global_importance[:3]]
+        partial_dependence = {}
+        for feat in top3:
+            feat_min, feat_max = float(X[feat].min()), float(X[feat].max())
+            if feat_min == feat_max:
+                continue
+            vals = np.linspace(feat_min, feat_max, 20)
+            X_tmp = X.copy()
+            pdp = []
+            for v in vals:
+                X_tmp[feat] = v
+                pdp.append(round(float(model.predict(X_tmp).mean()), 4))
+            partial_dependence[feat] = [{'x': round(float(v), 4), 'y': p} for v, p in zip(vals, pdp)]
+
+        return jsonify({
+            'global_importance': global_importance,
+            'permutation_importance': perm_importance,
+            'local_explanations': local_explanations,
+            'partial_dependence': partial_dependence,
+            'model': 'RandomForest',
+            'task_type': task_type,
+            'n_features': len(feature_cols),
+            'n_rows': len(df),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── Bias & Fairness Checks ────────────────────────────────────────────────────
+@app.route('/bias-check', methods=['POST'])
+def bias_check():
+    try:
+        body = request.get_json() or {}
+        rows = body.get('rows', [])
+        target_col = body.get('target_col', '')
+        protected_col = body.get('protected_col', '')
+        feature_cols = body.get('feature_cols', [])
+
+        df = pd.DataFrame(rows)
+        validate_df(df, min_rows=20, context='bias_check')
+        if target_col not in df.columns:
+            return jsonify({'error': f'Target column "{target_col}" not found'}), 400
+        if protected_col not in df.columns:
+            return jsonify({'error': f'Protected column "{protected_col}" not found'}), 400
+
+        df = df.dropna(subset=[target_col, protected_col]).copy()
+        if not feature_cols:
+            feature_cols = [c for c in df.columns if c not in [target_col, protected_col]]
+        feature_cols = [c for c in feature_cols if c in df.columns]
+
+        X = df[feature_cols].copy()
+        for col in X.select_dtypes(include='object').columns:
+            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+        X = X.fillna(X.mean(numeric_only=True)).fillna(0)
+
+        le_y = LabelEncoder()
+        y_enc = le_y.fit_transform(df[target_col].astype(str))
+        model = RandomForestClassifier(n_estimators=80, random_state=42)
+        model.fit(X, y_enc)
+        y_pred = model.predict(X)
+
+        groups = df[protected_col].unique()
+        group_metrics = []
+        for grp in groups:
+            mask = (df[protected_col] == grp).values
+            grp_y = y_enc[mask]
+            grp_pred = y_pred[mask]
+            if len(grp_pred) == 0:
+                continue
+            pos_rate = float(grp_pred.mean())
+            tpr = float(((grp_pred == 1) & (grp_y == 1)).sum() / grp_y.sum()) if grp_y.sum() > 0 else 0.0
+            acc = float((grp_pred == grp_y).mean())
+            group_metrics.append({
+                'group': str(grp),
+                'count': int(mask.sum()),
+                'positive_rate': round(pos_rate, 4),
+                'true_positive_rate': round(tpr, 4),
+                'accuracy': round(acc, 4),
+            })
+
+        pos_rates = [g['positive_rate'] for g in group_metrics]
+        tprs = [g['true_positive_rate'] for g in group_metrics]
+        max_pos, min_pos = (max(pos_rates), min(pos_rates)) if pos_rates else (1, 1)
+        disparate_impact = round(min_pos / max_pos, 4) if max_pos > 0 else 1.0
+        dp_diff = round(max_pos - min_pos, 4)
+        eo_diff = round(max(tprs) - min(tprs), 4) if len(tprs) > 1 else 0.0
+
+        fairness_score = int(max(0, min(100, 100 - dp_diff * 100 - eo_diff * 50)))
+        verdict = 'FAIR' if disparate_impact >= 0.8 and dp_diff < 0.1 else ('POTENTIAL_BIAS' if disparate_impact >= 0.6 else 'BIASED')
+
+        recs = []
+        if disparate_impact < 0.8:
+            recs.append(f'Disparate impact {disparate_impact:.2f} < 0.8. Reweight samples for "{protected_col}" groups.')
+        if dp_diff > 0.1:
+            recs.append(f'Demographic parity diff {dp_diff:.2f}. Apply post-processing calibration or fairness-aware algorithm.')
+        if eo_diff > 0.1:
+            recs.append(f'Equalized odds diff {eo_diff:.2f}. Consider threshold optimization per group.')
+        if not recs:
+            recs.append('No significant bias detected. Monitor continuously as new data arrives.')
+
+        return jsonify({
+            'group_metrics': group_metrics,
+            'fairness_summary': {
+                'disparate_impact': disparate_impact,
+                'demographic_parity_diff': dp_diff,
+                'equalized_odds_diff': eo_diff,
+                'overall_positive_rate': round(float(y_pred.mean()), 4),
+                'fairness_score': fairness_score,
+                'verdict': verdict,
+            },
+            'recommendations': recs,
+            'protected_col': protected_col,
+            'target_col': target_col,
+            'n_groups': len(group_metrics),
+            'n_rows': len(df),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── Synthetic Data Generator ──────────────────────────────────────────────────
+def _get_template_schema(template):
+    templates = {
+        'sales': [
+            {'name': 'sale_id', 'type': 'id', 'params': {'prefix': 'SALE', 'start': 1000}},
+            {'name': 'date', 'type': 'date', 'params': {'start': '2024-01-01', 'end': '2024-12-31'}},
+            {'name': 'region', 'type': 'categorical', 'params': {'categories': ['North','South','East','West','Central'], 'weights': [0.25,0.20,0.20,0.20,0.15]}},
+            {'name': 'product', 'type': 'categorical', 'params': {'categories': ['Widget A','Widget B','Gadget X','Gadget Y','Service Pro']}},
+            {'name': 'channel', 'type': 'categorical', 'params': {'categories': ['Online','Retail','Direct','Wholesale']}},
+            {'name': 'quantity', 'type': 'integer', 'params': {'distribution': 'poisson', 'lambda': 25}},
+            {'name': 'unit_price', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 150, 'std': 80}},
+            {'name': 'discount', 'type': 'float', 'params': {'distribution': 'uniform', 'min': 0, 'max': 0.3}},
+            {'name': 'revenue', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 5000, 'std': 2000}},
+            {'name': 'cost', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 2500, 'std': 1000}},
+            {'name': 'profit', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 2500, 'std': 1500}},
+            {'name': 'customer_id', 'type': 'integer', 'params': {'distribution': 'uniform', 'min': 1000, 'max': 9999}},
+        ],
+        'hr': [
+            {'name': 'employee_id', 'type': 'id', 'params': {'prefix': 'EMP', 'start': 1001}},
+            {'name': 'department', 'type': 'categorical', 'params': {'categories': ['Engineering','Sales','Marketing','HR','Finance','Operations']}},
+            {'name': 'job_level', 'type': 'categorical', 'params': {'categories': ['Junior','Mid','Senior','Lead','Manager','Director'], 'weights': [0.25,0.30,0.25,0.10,0.07,0.03]}},
+            {'name': 'gender', 'type': 'categorical', 'params': {'categories': ['M','F','Non-binary'], 'weights': [0.52,0.45,0.03]}},
+            {'name': 'age', 'type': 'integer', 'params': {'distribution': 'normal', 'mean': 35, 'std': 8}},
+            {'name': 'tenure_years', 'type': 'float', 'params': {'distribution': 'exponential', 'scale': 3}},
+            {'name': 'salary', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 75000, 'std': 25000}},
+            {'name': 'performance_score', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 3.5, 'std': 0.8}},
+            {'name': 'attrition', 'type': 'boolean', 'params': {'true_rate': 0.16}},
+        ],
+        'iot': [
+            {'name': 'sensor_id', 'type': 'categorical', 'params': {'categories': [f'SENSOR_{i:03d}' for i in range(1, 21)]}},
+            {'name': 'timestamp', 'type': 'date', 'params': {'start': '2024-01-01', 'end': '2024-12-31'}},
+            {'name': 'temperature', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 22, 'std': 5}},
+            {'name': 'humidity', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 55, 'std': 15}},
+            {'name': 'pressure', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 1013, 'std': 10}},
+            {'name': 'cpu_usage', 'type': 'float', 'params': {'distribution': 'uniform', 'min': 5, 'max': 95}},
+            {'name': 'memory_mb', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 4096, 'std': 1024}},
+            {'name': 'alert', 'type': 'boolean', 'params': {'true_rate': 0.05}},
+        ],
+        'ecommerce': [
+            {'name': 'order_id', 'type': 'id', 'params': {'prefix': 'ORD', 'start': 10000}},
+            {'name': 'order_date', 'type': 'date', 'params': {'start': '2024-01-01', 'end': '2024-12-31'}},
+            {'name': 'customer_segment', 'type': 'categorical', 'params': {'categories': ['New','Returning','VIP','At-Risk'], 'weights': [0.35,0.40,0.15,0.10]}},
+            {'name': 'product_category', 'type': 'categorical', 'params': {'categories': ['Electronics','Clothing','Home','Sports','Books','Beauty']}},
+            {'name': 'order_value', 'type': 'float', 'params': {'distribution': 'exponential', 'scale': 80}},
+            {'name': 'items_count', 'type': 'integer', 'params': {'distribution': 'poisson', 'lambda': 3}},
+            {'name': 'shipping_days', 'type': 'integer', 'params': {'distribution': 'uniform', 'min': 1, 'max': 14}},
+            {'name': 'returned', 'type': 'boolean', 'params': {'true_rate': 0.12}},
+            {'name': 'rating', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 4.0, 'std': 0.8}},
+        ],
+        'finance': [
+            {'name': 'date', 'type': 'date', 'params': {'start': '2024-01-01', 'end': '2024-12-31'}},
+            {'name': 'symbol', 'type': 'categorical', 'params': {'categories': ['AAPL','GOOGL','MSFT','AMZN','TSLA','META','NVDA','AMD']}},
+            {'name': 'open', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 200, 'std': 50}},
+            {'name': 'high', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 210, 'std': 52}},
+            {'name': 'low', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 190, 'std': 48}},
+            {'name': 'close', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 200, 'std': 50}},
+            {'name': 'volume', 'type': 'integer', 'params': {'distribution': 'poisson', 'lambda': 1000000}},
+            {'name': 'market_cap_b', 'type': 'float', 'params': {'distribution': 'normal', 'mean': 500, 'std': 300}},
+        ],
+    }
+    return templates.get(template, [])
+
+
+@app.route('/synthetic/templates', methods=['GET'])
+def synthetic_templates():
+    return jsonify([
+        {'id': 'sales', 'name': 'Sales Data', 'description': '12 columns incl. date, region, product, channel, revenue, profit', 'columns': 12},
+        {'id': 'hr', 'name': 'HR Analytics', 'description': '9 columns incl. department, gender, salary, performance, attrition', 'columns': 9},
+        {'id': 'iot', 'name': 'IoT Telemetry', 'description': '8 columns incl. sensor_id, temperature, humidity, pressure, alerts', 'columns': 8},
+        {'id': 'ecommerce', 'name': 'E-Commerce Orders', 'description': '9 columns incl. segment, category, order_value, rating, returns', 'columns': 9},
+        {'id': 'finance', 'name': 'Financial OHLCV', 'description': '8 columns incl. symbol, open, high, low, close, volume', 'columns': 8},
+    ])
+
+
+@app.route('/synthetic/generate', methods=['POST'])
+def synthetic_generate():
+    try:
+        body = request.get_json() or {}
+        schema = body.get('schema', [])
+        n_rows = min(int(body.get('n_rows', 100)), 50000)
+        template = body.get('template')
+        seed = int(body.get('seed', 42))
+        np.random.seed(seed)
+
+        if template:
+            schema = _get_template_schema(template)
+        if not schema:
+            return jsonify({'error': 'Provide schema array or a template name'}), 400
+
+        col_data = {}
+        for spec in schema:
+            name = spec.get('name', 'col')
+            dtype = spec.get('type', 'numeric')
+            dist = spec.get('distribution') or spec.get('params', {}).get('distribution', 'uniform')
+            p = spec.get('params', {})
+
+            if dtype in ('numeric', 'integer', 'float'):
+                if dist == 'normal':
+                    data = np.random.normal(p.get('mean', 0), p.get('std', 1), n_rows)
+                elif dist == 'poisson':
+                    data = np.random.poisson(p.get('lambda', 5), n_rows).astype(float)
+                elif dist == 'exponential':
+                    data = np.random.exponential(p.get('scale', 1), n_rows)
+                else:
+                    data = np.random.uniform(p.get('min', 0), p.get('max', 100), n_rows)
+                if dtype == 'integer':
+                    data = np.round(data).astype(int).tolist()
+                else:
+                    data = np.round(data, 4).tolist()
+                miss = p.get('missing_rate', 0)
+                if miss > 0:
+                    for i in range(n_rows):
+                        if np.random.random() < miss:
+                            data[i] = None
+                col_data[name] = data
+
+            elif dtype == 'categorical':
+                cats = p.get('categories', ['A', 'B', 'C'])
+                wts = p.get('weights')
+                if wts:
+                    wts = np.array(wts, dtype=float); wts /= wts.sum()
+                col_data[name] = np.random.choice(cats, n_rows, p=wts).tolist()
+
+            elif dtype == 'date':
+                s = pd.Timestamp(p.get('start', '2024-01-01'))
+                e = pd.Timestamp(p.get('end', '2024-12-31'))
+                days = max(int((e - s).days), 1)
+                offs = np.sort(np.random.randint(0, days, n_rows))
+                col_data[name] = [(s + pd.Timedelta(days=int(d))).strftime('%Y-%m-%d') for d in offs]
+
+            elif dtype == 'boolean':
+                col_data[name] = (np.random.random(n_rows) < p.get('true_rate', 0.5)).tolist()
+
+            elif dtype == 'id':
+                prefix = p.get('prefix', 'ID')
+                start_val = int(p.get('start', 1000))
+                col_data[name] = [f'{prefix}_{start_val + i}' for i in range(n_rows)]
+            else:
+                col_data[name] = [f'{name}_{i}' for i in range(n_rows)]
+
+        col_names = list(col_data.keys())
+        rows = [{c: col_data[c][i] for c in col_names} for i in range(n_rows)]
+
+        stats = {}
+        for spec in schema:
+            name = spec.get('name', 'col')
+            if name not in col_data:
+                continue
+            vals = [v for v in col_data[name] if v is not None]
+            if spec.get('type') in ('numeric', 'integer', 'float') and vals:
+                arr = np.array([float(v) for v in vals])
+                stats[name] = {'min': round(float(arr.min()), 2), 'max': round(float(arr.max()), 2), 'mean': round(float(arr.mean()), 2), 'std': round(float(arr.std()), 2)}
+            elif vals:
+                from collections import Counter
+                stats[name] = dict(Counter(str(v) for v in vals).most_common(5))
+
+        return jsonify({'rows': rows, 'n_rows': n_rows, 'schema': schema, 'stats': stats, 'template': template})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── Model Performance Benchmark ───────────────────────────────────────────────
+@app.route('/benchmark', methods=['POST'])
+def benchmark():
+    try:
+        from sklearn.model_selection import cross_val_score
+        from sklearn.svm import SVC, SVR
+        from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+        from sklearn.linear_model import Ridge, Lasso
+        body = request.get_json() or {}
+        rows = body.get('rows', [])
+        target_col = body.get('target_col', '')
+        feature_cols = body.get('feature_cols', [])
+        task_type = body.get('task_type', 'auto')
+
+        df = pd.DataFrame(rows)
+        validate_df(df, min_rows=10, context='benchmark')
+        if target_col not in df.columns:
+            return jsonify({'error': f'Target column "{target_col}" not found'}), 400
+
+        df = df.dropna(subset=[target_col])
+        if not feature_cols:
+            feature_cols = [c for c in df.columns if c != target_col]
+        feature_cols = [c for c in feature_cols if c in df.columns]
+
+        X = df[feature_cols].copy()
+        y = df[target_col].copy()
+        for col in X.select_dtypes(include='object').columns:
+            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+        X = X.fillna(X.mean(numeric_only=True)).fillna(0)
+
+        if task_type == 'auto':
+            task_type = 'classification' if (y.nunique() <= 10 or not pd.to_numeric(y, errors='coerce').notna().all()) else 'regression'
+
+        if task_type == 'classification':
+            y_enc = LabelEncoder().fit_transform(y.astype(str))
+            models = {
+                'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
+                'Gradient Boosting': GradientBoostingClassifier(n_estimators=50, random_state=42),
+                'Logistic Regression': LogisticRegression(max_iter=300, random_state=42),
+                'SVM': SVC(random_state=42),
+            }
+            scoring = 'accuracy'
+        else:
+            y_enc = pd.to_numeric(y, errors='coerce').fillna(0).values
+            models = {
+                'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42),
+                'Gradient Boosting': GradientBoostingRegressor(n_estimators=50, random_state=42),
+                'Ridge Regression': Ridge(),
+                'Lasso Regression': Lasso(),
+            }
+            scoring = 'r2'
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        results = []
+        for mname, model in models.items():
+            t0 = time.time()
+            model.fit(X_sc, y_enc)
+            fit_t = round(time.time() - t0, 4)
+
+            t0 = time.time()
+            model.predict(X_sc[:100])
+            pred_t = round(time.time() - t0, 4)
+
+            try:
+                cv_n = min(3, max(2, len(X) // 50))
+                scores = cross_val_score(model, X_sc, y_enc, cv=cv_n, scoring=scoring)
+                cv_mean, cv_std = round(float(scores.mean()), 4), round(float(scores.std()), 4)
+            except Exception:
+                cv_mean, cv_std = 0.0, 0.0
+
+            results.append({
+                'model': mname, 'fit_time_s': fit_t, 'predict_time_s': pred_t,
+                'cv_score': cv_mean, 'cv_std': cv_std,
+                'rows_per_second': int(len(X) / fit_t) if fit_t > 0 else 0,
+            })
+
+        results.sort(key=lambda x: x['cv_score'], reverse=True)
+        return jsonify({
+            'results': results, 'best_model': results[0]['model'] if results else None,
+            'task_type': task_type, 'n_rows': len(df), 'n_features': len(feature_cols), 'metric': scoring,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+# ── Causal Inference (ATE via IPW + regression) ───────────────────────────────
+@app.route('/causal', methods=['POST'])
+def causal():
+    try:
+        from sklearn.linear_model import LinearRegression
+        body = request.get_json() or {}
+        rows = body.get('rows', [])
+        treatment_col = body.get('treatment_col', '')
+        outcome_col = body.get('outcome_col', '')
+        control_cols = body.get('control_cols', [])
+
+        df = pd.DataFrame(rows)
+        validate_df(df, min_rows=20, context='causal')
+        if treatment_col not in df.columns:
+            return jsonify({'error': f'Treatment column "{treatment_col}" not found'}), 400
+        if outcome_col not in df.columns:
+            return jsonify({'error': f'Outcome column "{outcome_col}" not found'}), 400
+
+        df = df.dropna(subset=[treatment_col, outcome_col]).copy()
+        if not control_cols:
+            control_cols = [c for c in df.columns if c not in [treatment_col, outcome_col]]
+        control_cols = [c for c in control_cols if c in df.columns]
+
+        t_vals = pd.to_numeric(df[treatment_col], errors='coerce').fillna(0)
+        T = (t_vals > t_vals.median()).astype(int).values
+        Y = pd.to_numeric(df[outcome_col], errors='coerce').fillna(0).values
+
+        t_mask = T == 1; c_mask = T == 0
+        naive_ate = round(float(Y[t_mask].mean() - Y[c_mask].mean()), 4) if t_mask.sum() > 0 and c_mask.sum() > 0 else 0.0
+
+        ipw_ate, reg_ate = naive_ate, naive_ate
+        if control_cols:
+            Xc = df[control_cols].copy()
+            for col in Xc.select_dtypes(include='object').columns:
+                Xc[col] = LabelEncoder().fit_transform(Xc[col].astype(str))
+            Xc = Xc.fillna(Xc.mean(numeric_only=True)).fillna(0).values
+            try:
+                prop = LogisticRegression(max_iter=200, random_state=42)
+                prop.fit(Xc, T)
+                ps = np.clip(prop.predict_proba(Xc)[:, 1], 0.05, 0.95)
+                w = T / ps - (1 - T) / (1 - ps)
+                ipw_ate = round(float((w * Y).mean()), 4)
+                Xf = np.column_stack([Xc, T.reshape(-1, 1)])
+                om = LinearRegression(); om.fit(Xf, Y)
+                Xt1 = np.column_stack([Xc, np.ones((len(Xc), 1))])
+                Xt0 = np.column_stack([Xc, np.zeros((len(Xc), 1))])
+                reg_ate = round(float((om.predict(Xt1) - om.predict(Xt0)).mean()), 4)
+            except Exception:
+                pass
+
+        boot = []
+        for _ in range(300):
+            idx = np.random.choice(len(df), len(df), replace=True)
+            tb, yb = T[idx], Y[idx]
+            if tb.sum() > 0 and (1 - tb).sum() > 0:
+                boot.append(yb[tb == 1].mean() - yb[tb == 0].mean())
+        ci_low = round(float(np.percentile(boot, 2.5)), 4) if boot else naive_ate
+        ci_high = round(float(np.percentile(boot, 97.5)), 4) if boot else naive_ate
+
+        cov_balance = []
+        for col in control_cols[:8]:
+            if col in df.columns:
+                vals = pd.to_numeric(df[col], errors='coerce').fillna(0).values
+                tm, cm = float(vals[t_mask].mean()), float(vals[c_mask].mean())
+                psd = float(vals.std()) if vals.std() > 0 else 1
+                cov_balance.append({
+                    'covariate': col, 'treated_mean': round(tm, 4), 'control_mean': round(cm, 4),
+                    'std_diff': round((tm - cm) / psd, 4), 'balanced': abs((tm - cm) / psd) < 0.1,
+                })
+
+        direction = 'positive' if naive_ate > 0 else ('negative' if naive_ate < 0 else 'neutral')
+        interp = (f'Estimated causal effect of "{treatment_col}" on "{outcome_col}": {naive_ate:+.4f} (IPW: {ipw_ate:+.4f}, Regression: {reg_ate:+.4f}). '
+                  f'95% CI: [{ci_low:.4f}, {ci_high:.4f}]. Effect is {direction}.')
+
+        return jsonify({
+            'treatment_col': treatment_col, 'outcome_col': outcome_col,
+            'n_treated': int(t_mask.sum()), 'n_control': int(c_mask.sum()),
+            'ate_estimates': {'naive_ate': naive_ate, 'ipw_ate': ipw_ate, 'regression_ate': reg_ate},
+            'confidence_interval': {'lower': ci_low, 'upper': ci_high, 'level': 0.95},
+            'effect_direction': direction,
+            'covariate_balance': cov_balance,
+            'interpretation': interp,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)

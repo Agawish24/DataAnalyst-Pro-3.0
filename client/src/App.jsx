@@ -46,6 +46,12 @@ import CRMIntegration from './pages/CRMIntegration';
 import VibeCoding from './pages/VibeCoding';
 import AccountSettings from './pages/AccountSettings';
 import ZohoCRM from './pages/ZohoCRM';
+import ExplainableAI from './pages/ExplainableAI';
+import BiasFairness from './pages/BiasFairness';
+import SyntheticData from './pages/SyntheticData';
+import Benchmarks from './pages/Benchmarks';
+import DataContracts from './pages/DataContracts';
+import CausalInference from './pages/CausalInference';
 
 const PrivateRoute = ({ children }) => {
   const { user } = useAuth();
@@ -114,6 +120,12 @@ const AppRoutes = () => {
       <Route path="/zoho" element={wrap(ZohoCRM)} />
       <Route path="/vibe-coding" element={wrap(VibeCoding)} />
       <Route path="/account" element={wrap(AccountSettings)} />
+      <Route path="/explainable-ai" element={wrap(ExplainableAI)} />
+      <Route path="/bias-fairness" element={wrap(BiasFairness)} />
+      <Route path="/synthetic-data" element={wrap(SyntheticData)} />
+      <Route path="/benchmarks" element={wrap(Benchmarks)} />
+      <Route path="/data-contracts" element={wrap(DataContracts)} />
+      <Route path="/causal" element={wrap(CausalInference)} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );

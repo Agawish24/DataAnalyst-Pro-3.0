@@ -8,7 +8,8 @@ import {
   MessageSquare, GitMerge, ChefHat, FileText, Bell,
   Shield, BookOpen, Sparkles, TrendingUp, Sliders, Target, Key,
   Code, Languages, Plug, Building2, EyeOff, Webhook, Network,
-  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity, Zap, Crown
+  Map, Table2, Lock, Cpu, Tag, Download, Layers, Activity, Zap, Crown,
+  Brain, Scale, Gauge, FileCheck
 } from 'lucide-react';
 
 const navGroups = [
@@ -79,6 +80,18 @@ const navGroups = [
       { path: '/scenarios', icon: Sliders, label: 'Scenario Modeling', labelAr: 'نمذجة السيناريو' },
       { path: '/prescriptive', icon: Target, label: 'Prescriptive Analytics', labelAr: 'التحليلات التوجيهية' },
       { path: '/annotations', icon: Tag, label: 'Annotations', labelAr: 'التعليقات التوضيحية' },
+    ]
+  },
+  {
+    label: 'AI & Science',
+    labelAr: 'الذكاء الاصطناعي والعلوم',
+    items: [
+      { path: '/explainable-ai', icon: Brain, label: 'Explainable AI', labelAr: 'الذكاء الاصطناعي القابل للتفسير' },
+      { path: '/bias-fairness', icon: Scale, label: 'Bias & Fairness', labelAr: 'التحيز والعدالة' },
+      { path: '/causal', icon: GitMerge, label: 'Causal Inference', labelAr: 'الاستدلال السببي' },
+      { path: '/synthetic-data', icon: Wand2, label: 'Synthetic Data', labelAr: 'البيانات الاصطناعية' },
+      { path: '/benchmarks', icon: Gauge, label: 'Benchmarks', labelAr: 'المعايير' },
+      { path: '/data-contracts', icon: FileCheck, label: 'Data Contracts', labelAr: 'عقود البيانات' },
     ]
   },
   {

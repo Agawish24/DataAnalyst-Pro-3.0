@@ -559,6 +559,79 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/queries/execute" "$
 noauth_chk "Audit unauthenticated → 4xx" "$BASE/audit"
 
 # =============================================================================
+section "46. SYNTHETIC DATA GENERATOR"
+# =============================================================================
+chk "GET /synthetic/templates returns list" "$BASE/synthetic/templates" "GET" "" "sales"
+chk "POST /synthetic/generate — sales template" "$BASE/synthetic/generate" "POST" '{"template":"sales","n_rows":100,"seed":42}' '"n_rows":100'
+chk "POST /synthetic/generate — hr template" "$BASE/synthetic/generate" "POST" '{"template":"hr","n_rows":50,"seed":1}' '"n_rows":50'
+chk "POST /synthetic/generate — iot template" "$BASE/synthetic/generate" "POST" '{"template":"iot","n_rows":75,"seed":2}' '"n_rows":75'
+chk "POST /synthetic/generate — custom schema" "$BASE/synthetic/generate" "POST" '{"schema":[{"name":"val","type":"float","params":{"distribution":"normal","mean":50,"std":10}},{"name":"cat","type":"categorical","params":{"categories":["X","Y","Z"]}}],"n_rows":60}' '"n_rows":60'
+
+# =============================================================================
+section "47. DATA CONTRACTS"
+# =============================================================================
+CONTRACT_ID=$(api_json POST "$BASE/contracts" '{"name":"Harness Test Contract","rules":[{"type":"required_column","column":"region"},{"type":"required_column","column":"revenue"},{"type":"not_null","column":"profit","params":{"max_null_rate":0.1}},{"type":"row_count","params":{"min":10}}]}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+chk "POST /contracts — create contract" "$BASE/contracts" "POST" '{"name":"Harness Contract 2","rules":[{"type":"unique","column":"sale_id"}]}' '"name"'
+chk "GET /contracts — list contracts" "$BASE/contracts" "GET" "" '"name"'
+if [ -n "$CONTRACT_ID" ]; then
+  chk "POST /contracts/:id/validate — passes on data_1" "$BASE/contracts/$CONTRACT_ID/validate" "POST" '{"dataset_id":1}' '"passed"'
+  chk "POST /contracts/:id/validate — returns score" "$BASE/contracts/$CONTRACT_ID/validate" "POST" '{"dataset_id":1}' '"score"'
+  chk "POST /contracts/:id/validate — returns checks" "$BASE/contracts/$CONTRACT_ID/validate" "POST" '{"dataset_id":1}' '"checks"'
+  chk "DELETE /contracts/:id — deletes contract" "$BASE/contracts/$CONTRACT_ID" "DELETE" "" "Deleted"
+fi
+
+# =============================================================================
+section "48. PERFORMANCE BENCHMARKS"
+# =============================================================================
+chk "GET /benchmarks/system-stats — returns query_ms" "$BASE/benchmarks/system-stats" "GET" "" '"query_ms"'
+chk "GET /benchmarks/system-stats — covers big data" "$BASE/benchmarks/system-stats" "GET" "" '"name"'
+chk "GET /benchmarks/history — returns array" "$BASE/benchmarks/history" "GET" "" ""
+chk "POST /benchmarks/7/run — classification benchmark" "$BASE/benchmarks/7/run" "POST" '{"target_col":"churned","task_type":"classification"}' '"best_model"'
+chk "Benchmark returns results array" "$BASE/benchmarks/7/run" "POST" '{"target_col":"churned","task_type":"classification"}' '"cv_score"'
+
+# =============================================================================
+section "49. EXPLAINABLE AI"
+# =============================================================================
+chk "POST /explainable-ai/1/explain — regression" "$BASE/explainable-ai/1/explain" "POST" '{"target_col":"profit","task_type":"regression"}' '"global_importance"'
+chk "Explain returns permutation_importance" "$BASE/explainable-ai/1/explain" "POST" '{"target_col":"profit","task_type":"regression"}' '"permutation_importance"'
+chk "Explain returns local_explanations" "$BASE/explainable-ai/1/explain" "POST" '{"target_col":"profit","task_type":"regression"}' '"local_explanations"'
+chk "Explain returns partial_dependence" "$BASE/explainable-ai/1/explain" "POST" '{"target_col":"profit","task_type":"regression"}' '"partial_dependence"'
+chk "POST /explainable-ai/7/explain — classification" "$BASE/explainable-ai/7/explain" "POST" '{"target_col":"churned","task_type":"classification"}' '"global_importance"'
+
+# =============================================================================
+section "50. BIAS & FAIRNESS"
+# =============================================================================
+chk "POST /bias-check/1/run — group_metrics" "$BASE/bias-check/1/run" "POST" '{"target_col":"channel","protected_col":"region"}' '"group_metrics"'
+chk "Bias check returns fairness_summary" "$BASE/bias-check/1/run" "POST" '{"target_col":"channel","protected_col":"region"}' '"fairness_summary"'
+chk "Bias check returns disparate_impact" "$BASE/bias-check/1/run" "POST" '{"target_col":"channel","protected_col":"region"}' '"disparate_impact"'
+chk "Bias check returns verdict" "$BASE/bias-check/1/run" "POST" '{"target_col":"channel","protected_col":"region"}' '"verdict"'
+chk "Bias check returns recommendations" "$BASE/bias-check/1/run" "POST" '{"target_col":"channel","protected_col":"region"}' '"recommendations"'
+
+# =============================================================================
+section "51. CAUSAL INFERENCE"
+# =============================================================================
+chk "POST /causal/1/run — ate_estimates" "$BASE/causal/1/run" "POST" '{"treatment_col":"discount","outcome_col":"revenue","control_cols":["quantity","unit_price"]}' '"ate_estimates"'
+chk "Causal returns confidence_interval" "$BASE/causal/1/run" "POST" '{"treatment_col":"discount","outcome_col":"revenue","control_cols":["quantity","unit_price"]}' '"confidence_interval"'
+chk "Causal returns effect_direction" "$BASE/causal/1/run" "POST" '{"treatment_col":"discount","outcome_col":"revenue","control_cols":["quantity","unit_price"]}' '"effect_direction"'
+chk "Causal returns covariate_balance" "$BASE/causal/1/run" "POST" '{"treatment_col":"discount","outcome_col":"revenue","control_cols":["quantity","unit_price"]}' '"covariate_balance"'
+chk "Causal returns interpretation text" "$BASE/causal/1/run" "POST" '{"treatment_col":"discount","outcome_col":"revenue","control_cols":["quantity","unit_price"]}' '"interpretation"'
+chk "POST /causal/7/run — churn dataset" "$BASE/causal/7/run" "POST" '{"treatment_col":"churned","outcome_col":"customer_value"}' '"ate_estimates"'
+
+# =============================================================================
+section "52. BIG DATA STRESS TEST (100k rows)"
+# =============================================================================
+# Find the big data dataset ID
+BIG_DS_ID=$(api_json GET "$BASE/datasets" "" | python3 -c "import sys,json; ds=[d for d in json.load(sys.stdin) if 'Big Data' in d.get('name','')]; print(ds[0]['id'] if ds else '')" 2>/dev/null)
+if [ -n "$BIG_DS_ID" ]; then
+  chk "Big Data dataset exists (id=$BIG_DS_ID)" "$BASE/datasets/$BIG_DS_ID" "GET" "" '"name"'
+  chk "Big Data /summary loads" "$BASE/datasets/$BIG_DS_ID/summary" "GET" "" '"summary"'
+  chk "Big Data system benchmark includes dataset" "$BASE/benchmarks/system-stats" "GET" "" '"Big Data'
+else
+  echo -e "  ${YELLOW}⚠ SKIP${RESET}  Big Data dataset not seeded — run seed script"
+  SKIP=$((SKIP + 3))
+fi
+
+# =============================================================================
 # RESULTS SUMMARY
 # =============================================================================
 DURATION=$((SECONDS - START_ALL))
