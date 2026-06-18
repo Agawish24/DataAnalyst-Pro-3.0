@@ -242,6 +242,16 @@ const demoQuery = (type, sql) => {
 // ═══════════════════════════════════════════════════════════════════════════
 // Real connection test
 // ═══════════════════════════════════════════════════════════════════════════
+const friendlyConnError = (e) => {
+  const msg = e.message || '';
+  if (msg.includes('ENOTFOUND') || e.code === 'ENOTFOUND') return `Cannot reach host — hostname not found. Check the host address or enable Demo Mode.`;
+  if (msg.includes('ECONNREFUSED') || e.code === 'ECONNREFUSED') return `Connection refused — host is reachable but port is closed. Check the port or enable Demo Mode.`;
+  if (msg.includes('ETIMEDOUT') || e.code === 'ETIMEDOUT') return `Connection timed out — host took too long to respond. Enable Demo Mode to test without credentials.`;
+  if (msg.includes('password authentication failed') || msg.includes('Access denied')) return `Authentication failed — check your username and password.`;
+  if (msg.includes('ssl')) return `SSL error — try disabling SSL in the connector config.`;
+  return msg.slice(0, 120);
+};
+
 const getBigQueryToken = async (keyFileContent) => {
   if (!keyFileContent) throw new Error('BigQuery service account key is required — paste the full JSON key file content');
   let creds;
@@ -262,7 +272,7 @@ const testConnection = async (type, config) => {
   if (type === 'postgresql' || type === 'postgres') {
     const pg = new PgPool({ connectionString: config.connectionString || `postgresql://${config.user}:${config.password}@${config.host}:${config.port || 5432}/${config.database}`, ssl: config.ssl ? { rejectUnauthorized: false } : false, connectionTimeoutMillis: 5000 });
     try { const r = await pg.query('SELECT version()'); await pg.end(); return { ok: true, version: r.rows[0].version }; }
-    catch (e) { await pg.end().catch(() => {}); return { ok: false, error: e.message }; }
+    catch (e) { await pg.end().catch(() => {}); return { ok: false, error: friendlyConnError(e) }; }
   }
   if (type === 'mysql') {
     try {
@@ -271,12 +281,12 @@ const testConnection = async (type, config) => {
       const [rows] = await conn.execute('SELECT VERSION() as v');
       await conn.end();
       return { ok: true, version: rows[0].v };
-    } catch (e) { return { ok: false, error: e.message }; }
+    } catch (e) { return { ok: false, error: friendlyConnError(e) }; }
   }
   if (type === 'redshift') {
     const pg = new PgPool({ host: config.host, port: config.port || 5439, database: config.database, user: config.user, password: config.password, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 8000 });
     try { const r = await pg.query('SELECT version()'); await pg.end(); return { ok: true, version: r.rows[0].version }; }
-    catch (e) { await pg.end().catch(() => {}); return { ok: false, error: e.message }; }
+    catch (e) { await pg.end().catch(() => {}); return { ok: false, error: friendlyConnError(e) }; }
   }
   if (type === 'bigquery') {
     try {

@@ -56,7 +56,10 @@ export default function DatabaseConnectors() {
       const r = await api.post('/connectors', payload);
       const ok = r.data.testResult?.ok;
       if (ok) toast.success(r.data.demo_mode ? `"${form.name}" created in demo mode` : `"${form.name}" connected successfully`);
-      else toast.error(`Created but connection failed: ${r.data.testResult?.error}`);
+      else {
+        const err = r.data.testResult?.error || 'Connection failed';
+        toast.error(`Created but could not connect: ${err.length > 80 ? err.slice(0, 80) + '…' : err}`);
+      }
       setShowAdd(false);
       setForm({ name: '', type: 'mysql', config: {}, demo: false });
       load();
@@ -67,7 +70,12 @@ export default function DatabaseConnectors() {
     setTesting(id);
     try {
       const r = await api.post(`/connectors/${id}/test`);
-      toast[r.data.ok ? 'success' : 'error'](r.data.ok ? `✓ ${r.data.version?.slice(0, 60)}` : `Failed: ${r.data.error}`);
+      if (r.data.ok) {
+        toast.success(`✓ ${r.data.version?.slice(0, 60)}`);
+      } else {
+        const err = r.data.error || 'Connection failed';
+        toast.error(err.length > 100 ? err.slice(0, 100) + '…' : err);
+      }
       load();
     } catch { toast.error('Test failed'); }
     finally { setTesting(null); }

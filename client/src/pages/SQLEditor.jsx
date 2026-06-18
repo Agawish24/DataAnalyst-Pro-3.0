@@ -50,6 +50,9 @@ export default function SQLEditor() {
 
   const runQuery = async () => {
     if (!sql.trim()) return;
+    if (!activeDataset && /\bfrom\s+dataset\b/i.test(sql)) {
+      return setError('No dataset selected — click a dataset in the left sidebar first, then run your query.');
+    }
     setRunning(true); setError(null); setResults(null);
     try {
       const res = await api.post('/queries/execute', { sql, datasetId: activeDataset?.id });

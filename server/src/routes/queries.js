@@ -67,6 +67,9 @@ const executeSQL = async (req, res) => {
     }
 
     // Replace dataset table alias: users can write "FROM dataset" and we map it to the actual table
+    if (!datasetId && /\bfrom\s+dataset\b/gi.test(sql)) {
+      return res.status(400).json({ error: 'No dataset selected — click a dataset in the left sidebar first, then run your query.' });
+    }
     let resolvedSQL = sql;
     if (datasetId) {
       resolvedSQL = sql

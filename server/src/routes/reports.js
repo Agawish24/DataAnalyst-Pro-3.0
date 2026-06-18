@@ -79,9 +79,10 @@ const generateReport = async (req, res) => {
       narrativeText = generateNarrative(profile);
     }
 
+    const contentJson = JSON.stringify({ text: narrativeText, sections: include_sections, generated_at: new Date().toISOString() });
     const result = await pool.query(
-      'INSERT INTO reports (name, dataset_id, dashboard_id, report_type, config, ai_narrative, created_by, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-      [name, dataset_id || null, dashboard_id || null, report_type, JSON.stringify({ include_sections }), narrativeText, req.user.id, 'ready']
+      'INSERT INTO reports (title, dataset_id, template, content, html_content, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [name, dataset_id || null, report_type, contentJson, narrativeText, req.user.id]
     );
 
     res.status(201).json({ ...result.rows[0], profile });

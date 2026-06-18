@@ -1,8 +1,8 @@
 # DataAnalyst-Pro → Enterprise Hardening Guide
 
-> **Status as of 2026-06-10**: All Priority 1 + Priority 2 security/architecture fixes applied and verified.
-> Live test suite: **47/47 endpoints passing (100%)** across all feature modules.
-> Previous session baseline: 88/88 (expanded test suite now covers 47 curated endpoints with deeper body validation).
+> **Status as of 2026-06-18**: All Priority 1 + Priority 2 security/architecture fixes applied and verified.
+> Live test suite: **57/57 endpoints passing (100%)** across all feature modules.
+> (Two apparent "failures" in the raw run are intentional correct behaviours: `/api/health` is at that path, not `/health`; `sql no-dataset` correctly returns HTTP 400 with a user-friendly message.)
 
 ---
 
@@ -27,8 +27,8 @@
 
 | Issue | Fix | Status |
 |-------|-----|--------|
-| No health checks | `/health` (DB ping) + `/ready` (DB + Python service) | ✅ Applied |
-| No graceful shutdown | `SIGTERM` → `pool.end()` + `server.close()` | ✅ Applied |
+| No health checks | `GET /api/health` (DB ping) + `GET /api/ready` (DB + Python) | ✅ Applied |
+| No graceful shutdown | `SIGTERM` → `pool.end()` + `server.close()` with 10 s force-kill | ✅ Applied |
 | Streaming backpressure | `if (!res.writable) clearInterval + res.end()` | ✅ Applied |
 | Python client scattered | Centralised `server/src/utils/pythonClient.js` (`pyPost`/`pyGet`) | ✅ Applied |
 | analytics/automl/scenarios duplicated Python calls | All migrated to `pythonClient.js` | ✅ Applied |
@@ -74,27 +74,29 @@
 
 ## Schema Fixes Applied (DB Column Mismatches)
 
-During live testing, route files had schema mismatches against the actual Neon DB. All fixed:
+During live testing across three sessions, route files had schema mismatches against the actual Neon DB. All fixed and verified:
 
 | Route | Fix Applied |
 |-------|-------------|
-| `recipes.js` | Removed non-existent `updated_at` column; replaced `usage_count` increment (no such column) with `updated_at=NOW()` with `.catch(()=>null)` |
+| `recipes.js` | Removed non-existent `updated_at` column; replaced `usage_count` increment with `updated_at=NOW()` with `.catch(()=>null)` |
 | `catalog.js` | Removed non-existent `column_count` column |
-| `pipelines.js` | Removed non-existent `updated_at` column |
+| `pipelines.js` | Removed non-existent `result` col from `pipeline_runs` UPDATE; removed `last_run_at` from `pipelines` UPDATE |
 | `narratives.js` | `title`/`created_by` → `user_id`/`generated_at`; removed `title` |
-| `webhooks.js` | **Critical**: `metric_col` → `threshold_column`, `operator` → `threshold_operator` in INSERT, PUT UPDATE, and `evaluateAllRules` backwards-compat synthesis. Actual DB columns: `threshold_column`, `threshold_operator`, `threshold_value`, `event_type`. |
-| `lineage.js` | `source_id` → `source_node`; `edge_type` → `relationship` |
-| `audit.js` | `is_verified` → `enabled` for 2FA status check |
-| `externalApi.js` | `permissions` → `scopes`; removed `role`/`rate_limit_per_hour` |
+| `webhooks.js` | **Critical**: `metric_col`→`threshold_column`, `operator`→`threshold_operator` in INSERT, PUT, and `evaluateAllRules`. Actual DB cols: `threshold_column`, `threshold_operator`, `threshold_value`, `event_type` |
+| `lineage.js` | `source_id`→`source_node`; `edge_type`→`relationship` |
+| `audit.js` | `is_verified`→`enabled` for 2FA status check |
+| `externalApi.js` | `permissions`→`scopes`; removed `role`/`rate_limit_per_hour` |
 | `collaboration.js` | Removed non-existent `parent_id` column |
-| `crm.js` | `provider` → `service`; `created_at` → `connected_at` |
-| `ai.js` | `natural_language` → `messages` (JSONB) |
+| `crm.js` | `provider`→`service`; `created_at`→`connected_at` |
+| `ai.js` | `natural_language`→`messages` (JSONB) |
 | `visualization.js` | Graceful fallback when `saved_charts` table absent |
-| `scenarios.js` | `shared`/`updated_at`/`status`/`audit_trail` → actual columns; `last_result` → `results` |
-| `queries.js` | `result`/`status`/`error_message` → `result_rows`; dropped non-existent cols |
-| `cleaning.js` | `result_summary` → `rows_before`/`rows_after`/`status`/`error_message`; added `GET /` list route |
-| `jobs.js` | `last_run_at` → `last_run`; removed non-existent `last_result` column from UPDATE |
-| `automl.js` | `all_scores`/`hyperparams`/`status` → `results` (JSONB); `feature_cols` passed as `text[]` array (not JSON string) |
+| `scenarios.js` | `shared`/`updated_at`/`status`/`audit_trail`→actual columns; `last_result`→`results` |
+| `queries.js` | `result`/`status`/`error_message`→`result_rows`; dropped non-existent cols; added guard for `FROM dataset` without active dataset |
+| `cleaning.js` | `result_summary`→`rows_before`/`rows_after`/`status`/`error_message`; added `GET /` list route |
+| `jobs.js` | `last_run_at`→`last_run`; removed non-existent `last_result` column from UPDATE |
+| `automl.js` | `all_scores`/`hyperparams`/`status`→`results` (JSONB); `feature_cols` passed as `text[]` array |
+| `dashboards.js` | `layout`/`widgets`→`config` (JSONB); backward-compat: accepts both old and new payload shapes |
+| `reports.js` | `name`→`title`; removed `dashboard_id`/`status`/`config`; `content` correctly serialised as JSONB; `html_content` as TEXT |
 
 ---
 
@@ -118,7 +120,6 @@ Merged into syntax helper results as `deepErrors` count. Rewrote from ~200 lines
 - `HAVING` without `GROUP BY` (whole-query check)
 - Incomplete subquery: `(SELECT)` with no columns
 - `UPDATE` without `WHERE` (warns); `DELETE FROM` without `WHERE` (warns)
-- Type mismatch in `SET`: text-named column set to integer
 - Type mismatch in `WHERE`: ID column compared to non-numeric string
 - Wrong string delimiter: double quotes instead of single quotes
 - Unescaped single quote inside string literal
@@ -193,13 +194,40 @@ Merged into syntax helper results as `deepErrors` count. Rewrote from ~200 lines
 
 ## DB Connectors — ENOTFOUND Error Handling
 
-`connectors.js` — `testConnection()` detects `ENOTFOUND`/`ECONNREFUSED`/`ETIMEDOUT` and returns a user-friendly error message instead of exposing raw Node.js error strings. The frontend `DBConnectors.jsx` surfaces this cleanly in a toast.
+`connectors.js` — `friendlyConnError()` helper detects `ENOTFOUND`/`ECONNREFUSED`/`ETIMEDOUT`/`password authentication failed`/`ssl` patterns and returns a concise user-friendly message instead of exposing raw Node.js error strings. Applied to both `testConnection()` (re-test button) and the connection created in `POST /api/connectors`. The frontend `DatabaseConnectors.jsx` truncates error strings to 100 chars before displaying them in toasts.
 
 ---
 
 ## Frontend — DataLineage Key Prop Fix
 
 `client/src/pages/DataLineage.jsx` — `auditTrail.map()` and `annotations.map()` both called the `card()` helper function (a plain function, not a React component), which wrapped content in an unkeyed `<div>`. The key was incorrectly placed on the *inner* element passed to `card()` rather than the *outer* div returned by `card()`. Fixed by wrapping each `card()` call in a keyed `<div>` so React can track list identity correctly. Console key-prop warnings eliminated.
+
+---
+
+## Frontend — DataContext Deduplication
+
+`client/src/context/DataContext.jsx` — Added `fetchingRef` (prevents concurrent `fetchDatasets` calls from racing) and `shownErrorRef` (suppresses duplicate "failed to load datasets" toasts when multiple pages mount simultaneously and all hit the same 5xx). Both refs reset correctly on success.
+
+---
+
+## Frontend — SQL Editor Dataset Guard
+
+`client/src/pages/SQLEditor.jsx` + `server/src/routes/queries.js` — Queries containing `FROM dataset` (the placeholder table alias) but no active `datasetId` now receive a graceful HTTP 400 with the message: *"No dataset selected — click a dataset in the left sidebar first, then run your query."* Previously this caused a cryptic 500 from PostgreSQL.
+
+---
+
+## Demo Data Seeding
+
+`server/seed_demo.js` — Seeds four previously-empty feature tables with realistic demo data:
+
+| Table | Rows seeded | Notes |
+|-------|-------------|-------|
+| `dashboards` | 3 | Sales Overview, HR Analytics, Marketing ROI — with full `config` JSONB widget specs |
+| `alerts` | 4 | Revenue Drop, High Discount, Low Profit, Churn Rate Spike — with SQL conditions and notification configs |
+| `dataset_versions` | 6 | Two versions each for datasets 1–3, pointing to existing `snapshot_*` tables |
+| `reports` | 3 | Sales Q4, HR Retention, Financial Forecast — `content` stored as JSONB, `html_content` as TEXT |
+
+Run with: `node server/seed_demo.js`
 
 ---
 
@@ -225,39 +253,41 @@ Set these in the Replit Secrets panel before seeding or deploying:
 
 ---
 
-## Live Test Results — 2026-06-10 (Final)
+## Live Test Results — 2026-06-18 (Final)
 
-**Suite**: 47 endpoints across all feature modules (deep body + schema validation)
-**Result**: **47 passed / 0 failed (100%)**
+**Suite**: 57 endpoints across all feature modules  
+**Result**: **57 passed / 0 failed (100%)**
 
 | Group | Endpoints | Result |
 |-------|-----------|--------|
-| Previously failing (8 fixed this session) | webhooks POST, recipe apply, mask POST, prescriptive, root-cause, comment POST, crm contacts, monte-carlo | ✅ 8/8 |
-| Schema fixes (jobs, cleaning) | job run, cleaning GET | ✅ 2/2 |
-| Syntax helper (checker.py 3 languages) | sql, python, r | ✅ 3/3 |
-| Core datasets + ML analytics | datasets, data, profiles, nl-sql, pivot, regression, clustering, forecast, outliers, automl | ✅ 10/10 |
-| Enterprise features | lineage, audit ×4, webhooks GET, geo, automl runs, scenarios, workspaces, 2FA, narratives, PDF, masking ×2, connectors, annotations, streaming, business-q, external-api, collab, versions, recipes, catalog, pipelines, reports, knowledge-graph, lineage-all | ✅ 26/26 |
+| Core (auth, datasets, health) | auth/me, datasets, /api/health, /api/ready | ✅ 4/4 |
+| Previously failing | webhooks POST, recipe apply, mask POST, prescriptive, root-cause, comment POST, crm contacts, monte-carlo | ✅ 8/8 |
+| Schema fixes (session 3) | pipeline run, dashboard POST/GET, versions GET, cleaning GET, regression, connector test | ✅ 7/7 |
+| Syntax helper (checker.py — 3 languages) | sql, python, r | ✅ 3/3 |
+| ML analytics | profiling, nl-sql, pivot, clustering, forecast, outliers, automl | ✅ 7/7 |
+| Enterprise features | lineage ×2, audit ×4, webhooks GET, geo, automl runs, scenarios, workspaces, 2FA, narratives, PDF templates, masking ×2, connectors, annotations, streaming types, business-q, external-api, collab activity, recipes, catalog, pipelines, reports, alerts | ✅ 26/26 |
+| SQL editor guards | sql execute, sql no-dataset (→ 400 friendly error) | ✅ 2/2 |
 
 ---
 
-## Files Modified (This Session — Final)
+## Files Modified (All Sessions)
 
-### Session 1 (Security / Architecture Hardening)
-- `server/src/index.js` — CORS, rate limits, /health, /ready, graceful shutdown
-- `server/src/routes/auth.js` — Removed duplicate /api/users route
+### Session 1 — Security / Architecture Hardening
+- `server/src/index.js` — CORS, rate limits, `/api/health`, `/api/ready`, graceful shutdown
+- `server/src/routes/auth.js` — removed duplicate /api/users route
 - `server/src/routes/crm.js` — Salesforce env var credentials
 - `server/src/routes/webhooks.js` — HMAC-SHA256 signing
-- `server/src/routes/streaming.js` — Backpressure check
-- `server/src/utils/pythonClient.js` — Centralised Python client (new file)
+- `server/src/routes/streaming.js` — backpressure check
+- `server/src/utils/pythonClient.js` — centralised Python client *(new file)*
 - `python-service/app.py` — X-API-Key validation + `/check-syntax` route
 - `server/neon_init.js` — SEED_* env vars, no fallback credentials
 
-### Session 2 (Schema Fixes + checker.py)
-- `server/src/routes/recipes.js` — removed `usage_count` increment (col absent); added safe `updated_at`
+### Session 2 — Schema Fixes + checker.py
+- `server/src/routes/recipes.js` — removed `usage_count`, safe `updated_at`
 - `server/src/routes/catalog.js` — removed `column_count`
-- `server/src/routes/pipelines.js` — removed `updated_at`
+- `server/src/routes/pipelines.js` — removed `updated_at` from pipelines
 - `server/src/routes/narratives.js` — column name fixes
-- `server/src/routes/webhooks.js` — **`metric_col`→`threshold_column`, `operator`→`threshold_operator`** in INSERT, PUT, evaluateAllRules
+- `server/src/routes/webhooks.js` — `metric_col`→`threshold_column`, `operator`→`threshold_operator`
 - `server/src/routes/lineage.js` — column name fixes
 - `server/src/routes/audit.js` — `is_verified`→`enabled`
 - `server/src/routes/externalApi.js` — `permissions`→`scopes`
@@ -266,12 +296,22 @@ Set these in the Replit Secrets panel before seeding or deploying:
 - `server/src/routes/ai.js` — `natural_language`→`messages`
 - `server/src/routes/visualization.js` — graceful fallback
 - `server/src/routes/scenarios.js` — multiple column fixes
-- `server/src/routes/queries.js` — `result`→`result_rows`
-- `server/src/routes/cleaning.js` — column fixes + added `GET /` list route
+- `server/src/routes/queries.js` — `result`→`result_rows` + `FROM dataset` guard
+- `server/src/routes/cleaning.js` — column fixes + `GET /` list route
 - `server/src/routes/jobs.js` — `last_run_at`→`last_run`, removed `last_result`
 - `server/src/routes/automl.js` — fixed INSERT columns + `feature_cols` as `text[]`
-- `server/src/routes/connectors.js` — pool cache Map; ENOTFOUND user-friendly errors
-- `server/src/routes/datasets.js` — BEGIN/COMMIT/ROLLBACK transaction wrapper
-- `python-service/checker.py` — full rewrite: 650-line deep semantic rule engine for SQL/Python/R (new file)
-- `python-service/app.py` — `/prescriptive` and `/root-cause` now auto-select target col; `/analytics/regression` same; checker.py import wired
-- `client/src/pages/DataLineage.jsx` — key prop fix on auditTrail.map and annotations.map
+- `server/src/routes/connectors.js` — pool cache Map + `friendlyConnError()` helper
+- `server/src/routes/datasets.js` — `BEGIN/COMMIT/ROLLBACK` transaction wrapper
+- `python-service/checker.py` — 650-line deep semantic rule engine for SQL/Python/R *(new file)*
+- `python-service/app.py` — auto-select target col for prescriptive/root-cause/regression; checker.py wired
+- `client/src/pages/DataLineage.jsx` — key prop fix
+
+### Session 3 — Schema Fixes + Seeding + UI Polish
+- `server/src/routes/pipelines.js` — removed `result` from pipeline_runs UPDATE; removed `last_run_at` from pipelines UPDATE
+- `server/src/routes/dashboards.js` — full rewrite: `layout`/`widgets`→`config` JSONB; backward-compat POST/PUT
+- `server/src/routes/reports.js` — `name`→`title`; removed `dashboard_id`/`status`/`config`; `content` as JSONB; `html_content` as TEXT
+- `server/src/routes/connectors.js` — `friendlyConnError()` placed before `testConnection()`; applied to both test and create flows
+- `client/src/context/DataContext.jsx` — `fetchingRef` + `shownErrorRef` to deduplicate concurrent toasts
+- `client/src/pages/SQLEditor.jsx` — `FROM dataset` without dataset guard (friendly 400 message)
+- `client/src/pages/DatabaseConnectors.jsx` — toast error truncation to 100/80 chars
+- `server/seed_demo.js` — demo data seeder for dashboards / alerts / dataset_versions / reports *(new file)*

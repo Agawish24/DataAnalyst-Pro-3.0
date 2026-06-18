@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useRef } from 'react';
 import api from '../api/client';
 import toast from 'react-hot-toast';
 
@@ -8,16 +8,25 @@ export const DataProvider = ({ children }) => {
   const [datasets, setDatasets] = useState([]);
   const [activeDataset, setActiveDataset] = useState(null);
   const [loading, setLoading] = useState(false);
+  const fetchingRef = useRef(false);
+  const shownErrorRef = useRef(false);
 
   const fetchDatasets = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     try {
       setLoading(true);
       const res = await api.get('/datasets');
       setDatasets(res.data);
+      shownErrorRef.current = false;
     } catch (err) {
-      toast.error('Failed to load datasets');
+      if (!shownErrorRef.current) {
+        shownErrorRef.current = true;
+        toast.error('Failed to load datasets');
+      }
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   }, []);
 

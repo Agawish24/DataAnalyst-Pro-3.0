@@ -97,10 +97,9 @@ router.post('/:id/run', authenticate, async (req, res) => {
     } catch (e) { error = e.message; }
 
     await pool.query(
-      'UPDATE pipeline_runs SET status=$1, finished_at=NOW(), rows_processed=$2, result=$3, error_message=$4 WHERE id=$5',
-      [error ? 'failed' : 'success', rowsProcessed, JSON.stringify(result), error, runId]
+      'UPDATE pipeline_runs SET status=$1, finished_at=NOW(), rows_processed=$2, error_message=$3 WHERE id=$4',
+      [error ? 'failed' : 'success', rowsProcessed, error, runId]
     );
-    await pool.query('UPDATE pipelines SET last_run_at=NOW() WHERE id=$1', [p.id]);
     res.json({ run_id: runId, status: error ? 'failed' : 'success', rowsProcessed, result, error });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

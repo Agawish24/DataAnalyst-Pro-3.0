@@ -19,11 +19,12 @@ router.get('/', authenticate, async (req, res) => {
 
 router.post('/', authenticate, async (req, res) => {
   try {
-    const { name, description = '', layout = [], widgets = [], is_public = false } = req.body;
+    const { name, description = '', layout = [], widgets = [], config, is_public = false } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
+    const configVal = config || { layout, widgets };
     const result = await pool.query(
-      'INSERT INTO dashboards (name, description, layout, widgets, created_by, is_public) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [name, description, JSON.stringify(layout), JSON.stringify(widgets), req.user.id, is_public]
+      'INSERT INTO dashboards (name, description, config, created_by, is_public) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, description, JSON.stringify(configVal), req.user.id, is_public]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -45,15 +46,16 @@ router.get('/:id', authenticate, async (req, res) => {
 
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const { name, description, layout, widgets, is_public } = req.body;
+    const { name, description, layout, widgets, config, is_public } = req.body;
     const dash = await pool.query('SELECT * FROM dashboards WHERE id=$1', [req.params.id]);
     if (!dash.rows.length) return res.status(404).json({ error: 'Not found' });
     if (dash.rows[0].created_by !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const configVal = config || (layout !== undefined || widgets !== undefined ? { layout: layout || [], widgets: widgets || [] } : null);
     const result = await pool.query(
       `UPDATE dashboards SET name=COALESCE($1,name), description=COALESCE($2,description),
-       layout=COALESCE($3,layout), widgets=COALESCE($4,widgets), is_public=COALESCE($5,is_public), updated_at=NOW()
-       WHERE id=$6 RETURNING *`,
-      [name, description, layout ? JSON.stringify(layout) : null, widgets ? JSON.stringify(widgets) : null, is_public, req.params.id]
+       config=COALESCE($3,config), is_public=COALESCE($4,is_public), updated_at=NOW()
+       WHERE id=$5 RETURNING *`,
+      [name, description, configVal ? JSON.stringify(configVal) : null, is_public, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {
