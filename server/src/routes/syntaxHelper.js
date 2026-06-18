@@ -887,23 +887,43 @@ const SQL_AUTO_FIXES = [
 
 const fixSQLCode = (code) => {
   let fixed = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let fixCount = 0;
+  const before0 = fixed;
   for (const { re, fix } of SQL_AUTO_FIXES) {
     fixed = fixed.replace(re, fix);
   }
+  if (fixed !== before0) fixCount++;
 
   // Fix line-by-line checks
   const lines = fixed.split('\n');
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
+    const orig = line;
     // CHECK missing parens: CHECK expr → CHECK (expr)
     line = line.replace(/\bCHECK\s+(?!\()([^()\n;,]+?)\s*([,;]?\s*)$/i, (m, expr, trail) => {
       return `CHECK (${expr.trim()})${trail}`;
     });
+    // NULL comparisons: col = NULL → col IS NULL, col != NULL / col <> NULL → col IS NOT NULL
+    // Only inside WHERE/HAVING/ON clauses (safe context)
+    line = line.replace(/(\bWHERE\b|\bHAVING\b|\bON\b)(.*?)(\b(\w+)\s*=\s*NULL\b)/gi, (m, clause, before, expr, col) => {
+      return `${clause}${before}${col} IS NULL`;
+    });
+    line = line.replace(/(\b(\w+)\s*(?:!=|<>)\s*NULL\b)/gi, (m, _, col) => {
+      return `${col} IS NOT NULL`;
+    });
+    // LIMIT 0 → LIMIT 10 (almost always unintentional)
+    line = line.replace(/\bLIMIT\s+0\b/gi, 'LIMIT 10');
+    // Missing semicolon at end of complete statement (SELECT/INSERT/UPDATE/DELETE lines ending cleanly)
+    if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\b/i.test(lines[0]) &&
+        i === lines.length - 1 && line.trim() && !line.trim().endsWith(';') &&
+        !line.trim().endsWith(',') && lines.length === 1) {
+      line = line.trimEnd() + ';';
+    }
+    if (line !== orig) fixCount++;
     lines[i] = line;
   }
 
   // Fix line-by-line: missing comma after column def in CREATE TABLE
-  // (detect two consecutive non-comma-terminated col defs and add comma to first)
   const dataTypeKw = /\b(INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|REAL|MONEY|CHAR|VARCHAR|TEXT|DATE|TIME|TIMESTAMP|DATETIME|BOOLEAN|BOOL|SERIAL|UUID|JSON|JSONB|BYTEA|NVARCHAR|NCHAR)\b/i;
   let inCreate = false;
   for (let i = 0; i < lines.length - 1; i++) {
@@ -914,10 +934,11 @@ const fixSQLCode = (code) => {
     if (inCreate && dataTypeKw.test(t) && !t.endsWith(',') && !t.endsWith('(')) {
       if (dataTypeKw.test(next) || /^\s*(CONSTRAINT|PRIMARY|FOREIGN|UNIQUE|CHECK)\b/i.test(next)) {
         lines[i] = t + ',';
+        fixCount++;
       }
     }
   }
-  return lines.join('\n');
+  return { code: lines.join('\n'), fixCount };
 };
 
 // ── SQL logical / semantic checks ────────────────────────────────────────────
@@ -1064,10 +1085,10 @@ const analyzeSQL = (code) => {
   errors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
 
   // Auto-fix: only return fixedCode when it actually differs
-  const fixedCode = fixSQLCode(code);
-  const fixed = fixedCode !== code ? fixedCode : null;
+  const sqlFixResult = fixSQLCode(code);
+  const fixed = sqlFixResult.code !== code ? sqlFixResult.code : null;
 
-  return { errors, fixed, suggestions: generateSQLSuggestions(code) };
+  return { errors, fixed, fixCount: sqlFixResult.fixCount, suggestions: generateSQLSuggestions(code) };
 };
 
 // ── Python analysis ───────────────────────────────────────────────────────────
@@ -1351,6 +1372,7 @@ const checkPythonLines = (lines) => {
 
 // ── Python auto-fixer ─────────────────────────────────────────────────────────
 const fixPythonCode = (code) => {
+  let fixCount = 0;
   const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const fixed = lines.map(raw => {
     let line = raw;
@@ -1440,6 +1462,7 @@ const fixPythonCode = (code) => {
       else if (inDouble) line = t + '"';
     }
 
+    if (line !== raw) fixCount++;
     return line;
   });
 
@@ -1457,10 +1480,11 @@ const fixPythonCode = (code) => {
       const nextIndent = nextLine !== undefined ? (nextLine.match(/^(\s*)/)?.[1] ?? '') : '';
       if (nextIndent.length <= defIndent.length) {
         result.push(defIndent + '    pass');
+        fixCount++;
       }
     }
   }
-  return result.join('\n');
+  return { code: result.join('\n'), fixCount };
 };
 
 // Whole-file Python pattern checks (things that can't be done per-line)
@@ -2266,10 +2290,11 @@ const analyzePython = (code) => {
   ];
 
   // Apply auto-fixer to generate fixedCode
-  const autoFixed = fixPythonCode(code);
+  const autoFixResult = fixPythonCode(code);
+  let pyFixCount = autoFixResult.fixCount;
 
   // Global patterns: apply fixes and deduplicate
-  let fixed = autoFixed;
+  let fixed = autoFixResult.code;
   const existingMsgs = new Set(errors.map(e => e.message));
   for (const p of PYTHON_GLOBAL_PATTERNS) {
     const re = new RegExp(p.re.source, p.re.flags.replace('g', ''));
@@ -2281,14 +2306,18 @@ const analyzePython = (code) => {
         errors.push({ type: p.type, message: msg, language: 'python', line: lineNum });
         existingMsgs.add(msg);
       }
-      if (p.fix) fixed = p.fix(fixed);
+      if (p.fix) {
+        const before = fixed;
+        fixed = p.fix(fixed);
+        if (fixed !== before) pyFixCount++;
+      }
     }
   }
 
   // Sort by line number
   errors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
 
-  return { errors, fixed: fixed !== code ? fixed : null, suggestions: generatePythonSuggestions(code) };
+  return { errors, fixed: fixed !== code ? fixed : null, fixCount: pyFixCount, suggestions: generatePythonSuggestions(code) };
 };
 
 // ── R line-by-line checker ────────────────────────────────────────────────────
@@ -2858,6 +2887,7 @@ const R_PATTERNS = [
 
 // ── R auto-fixer (line-by-line) ───────────────────────────────────────────────
 const fixRCode = (code) => {
+  let fixCount = 0;
   const lines = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const fixed = lines.map(raw => {
     let line = raw;
@@ -2945,6 +2975,25 @@ const fixRCode = (code) => {
       if (opens > 0 && opens <= 3) line = line.trimEnd() + ')'.repeat(opens);
     }
 
+    // stop("a", "b") / warning("a", "b") → stop(paste0("a", "b"))
+    // Combine multiple string arguments with paste0 (only pure string args)
+    line = line.replace(/\b(stop|warning|message)\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/, '$1(paste0($2, $3))');
+    line = line.replace(/\b(stop|warning|message)\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/, '$1(paste0($2, $3, $4))');
+
+    // attr(x, "name", "extra") → attr(x, "name")  — attr takes exactly 2 args
+    line = line.replace(/\battr\s*\(([^,)]+),\s*("[^"]*"|'[^']*')\s*,[^)]+\)/, 'attr($1, $2)');
+
+    // cbind(1, 2, 3) or rbind(1, 2, 3) with only numeric literals → wrap in c()
+    // Safe: only when all args are bare numeric literals (not variables)
+    line = line.replace(/\b(cbind|rbind)\s*\(([\s\d.,eE+-]+)\)/, (m, fn, args) => {
+      if (!/[a-zA-Z_]/.test(args)) return `${fn}(c(${args.trim()}))`;
+      return m;
+    });
+
+    // print("hello") in R is valid but better style is cat("hello\n") for plain strings
+    // Only convert bare string print calls (not print(variable))
+    // (intentionally skipped — too opinionated, keep print() working)
+
     // Unterminated string literal — walk chars and close open quote
     {
       let inSingle = false, inDouble = false;
@@ -2959,9 +3008,10 @@ const fixRCode = (code) => {
       else if (inDouble) line = t + '"';
     }
 
+    if (line !== raw) fixCount++;
     return line;
   });
-  return fixed.join('\n');
+  return { code: fixed.join('\n'), fixCount };
 };
 
 const analyzeR = (code) => {
@@ -2970,7 +3020,9 @@ const analyzeR = (code) => {
   const lineErrors = checkRLines(lines);
 
   // Apply line-by-line fixer first, then global pattern fixer on top
-  let fixed = fixRCode(normalized);
+  const rFixResult = fixRCode(normalized);
+  let fixed = rFixResult.code;
+  let rFixCount = rFixResult.fixCount;
 
   const existingMsgs = new Set(lineErrors.map(e => e.message));
   const globalErrors = [];
@@ -2987,14 +3039,18 @@ const analyzeR = (code) => {
           existingMsgs.add(msg);
         }
       }
-      if (p.fix) fixed = p.fix(fixed);
+      if (p.fix) {
+        const before = fixed;
+        fixed = p.fix(fixed);
+        if (fixed !== before) rFixCount++;
+      }
     }
   }
 
   const allErrors = [...lineErrors, ...globalErrors];
   allErrors.sort((a, b) => (a.line || 9999) - (b.line || 9999));
 
-  return { errors: allErrors, fixed: fixed !== normalized ? fixed : null, suggestions: generateRSuggestions(code) };
+  return { errors: allErrors, fixed: fixed !== normalized ? fixed : null, fixCount: rFixCount, suggestions: generateRSuggestions(code) };
 };
 
 // ── Suggestion generators ─────────────────────────────────────────────────────
@@ -3173,6 +3229,7 @@ router.post('/analyze', authenticate, async (req, res) => {
       deepErrors: deepErrors.length,
       suggestions: result.suggestions,
       fixedCode: result.fixed,
+      autoFixedCount: result.fixed ? (result.fixCount || 0) : 0,
       aiFixedCode,
       isClean: allErrors.length === 0,
       hasAI: hasGroq,

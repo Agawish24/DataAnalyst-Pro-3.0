@@ -95,6 +95,8 @@ export default function SyntaxHelper() {
   const displayedFix = activeFixTab === 'ai' ? aiFixed : result?.fixedCode;
   const hasRuleFix = !!result?.fixedCode;
   const hasAIFix = !!aiFixed;
+  const autoFixedCount = result?.autoFixedCount || 0;
+  const manualNeeded = hasRuleFix ? Math.max(0, (result?.errorCount || 0) - autoFixedCount) : 0;
 
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
@@ -228,6 +230,11 @@ export default function SyntaxHelper() {
                     <button onClick={() => setActiveFixTab('rule')}
                       style={{ flex: 1, padding: '10px 14px', background: activeFixTab === 'rule' ? 'rgba(16,185,129,0.12)' : 'transparent', border: 'none', borderRight: '1px solid rgba(255,255,255,0.06)', color: activeFixTab === 'rule' ? '#10b981' : '#6b7280', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <Zap size={13} /> Rule-Based Fix
+                      {autoFixedCount > 0 && (
+                        <span style={{ background: 'rgba(16,185,129,0.25)', color: '#10b981', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
+                          {autoFixedCount} fixed
+                        </span>
+                      )}
                     </button>
                   )}
                   {hasAIFix && (
@@ -243,7 +250,12 @@ export default function SyntaxHelper() {
                 <pre style={{ padding: 16, margin: 0, color: activeFixTab === 'ai' ? '#c4b5fd' : '#86efac', fontSize: 12, fontFamily: 'Monaco, Menlo, monospace', overflowX: 'auto', maxHeight: 220, overflowY: 'auto', lineHeight: 1.6 }}>
                   {displayedFix}
                 </pre>
-                <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {activeFixTab === 'rule' && manualNeeded > 0 && (
+                    <span style={{ fontSize: 12, color: '#f59e0b', flex: 1 }}>
+                      ⚠️ {manualNeeded} error{manualNeeded !== 1 ? 's' : ''} require manual review (semantic/logic issues)
+                    </span>
+                  )}
                   <button onClick={() => applyFix(displayedFix)}
                     style={{ padding: '7px 16px', borderRadius: 7, border: `1px solid ${activeFixTab === 'ai' ? 'rgba(139,92,246,0.5)' : '#10b981'}`, background: activeFixTab === 'ai' ? 'rgba(139,92,246,0.15)' : 'rgba(16,185,129,0.1)', color: activeFixTab === 'ai' ? '#a78bfa' : '#10b981', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                     <CheckCircle2 size={14} /> Apply to Editor
