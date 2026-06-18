@@ -26,12 +26,15 @@ export default function StreamingDashboard() {
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [stats, setStats] = useState({});
   const [eventCount, setEventCount] = useState(0);
+  const [streamError, setStreamError] = useState(null);
   const esRef = useRef(null);
+  const errorCountRef = useRef(0);
   const feedConfig = FEED_TYPES.find(f => f.id === feedType) || FEED_TYPES[0];
 
   const disconnect = useCallback(() => {
     if (esRef.current) { esRef.current.close(); esRef.current = null; }
     setConnected(false); setRunning(false);
+    errorCountRef.current = 0;
   }, []);
 
   const connect = useCallback(() => {
@@ -70,10 +73,16 @@ export default function StreamingDashboard() {
         });
       } catch {}
     };
-    es.onerror = (err) => {
+    es.onerror = () => {
       setConnected(false);
-      // EventSource auto-reconnects — only stop if it was manually closed
+      errorCountRef.current += 1;
+      if (errorCountRef.current >= 3) {
+        // 3 consecutive errors → give up and stop
+        disconnect();
+        setStreamError('Connection to streaming server lost. Check that the backend is running and try again.');
+      }
     };
+    es.onopen = () => { errorCountRef.current = 0; setStreamError(null); };
     setRunning(true);
   }, [feedType, interval, disconnect]);
 
@@ -107,6 +116,13 @@ export default function StreamingDashboard() {
         </h1>
         <p style={{ color: '#6b7280', margin: 0 }}>Live data feeds with Server-Sent Events (SSE) — simulates Kafka/Kinesis-style real-time streams</p>
       </div>
+
+      {streamError && (
+        <div style={{ marginBottom: 16, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '11px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: '#fca5a5', fontSize: 13 }}>⚠ {streamError}</span>
+          <button onClick={() => setStreamError(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20 }}>
         {/* Sidebar */}

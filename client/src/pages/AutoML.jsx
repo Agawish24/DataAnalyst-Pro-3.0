@@ -182,6 +182,7 @@ export default function AutoML() {
     setActiveTab('models');
     try {
       let r;
+      const ML_TIMEOUT = 300000; // 5 min — CV on 3000 rows can take 60–180s
       if (mode === 'cross') {
         r = await api.post('/automl/cross-dataset', {
           dataset_ids: crossDatasets,
@@ -189,13 +190,13 @@ export default function AutoML() {
           target_col: targetCol,
           feature_cols: featureCols.length ? featureCols : undefined,
           task_type: taskType !== 'auto' ? taskType : undefined,
-        });
+        }, { timeout: ML_TIMEOUT });
       } else {
         r = await api.post(`/automl/${activeDataset.id}/run`, {
           target_col: targetCol,
           feature_cols: featureCols.length ? featureCols : undefined,
           task_type: taskType !== 'auto' ? taskType : undefined,
-        });
+        }, { timeout: ML_TIMEOUT });
       }
       setResult(r.data);
       loadHistory();
@@ -334,7 +335,7 @@ export default function AutoML() {
               {running && (
                 <div style={{ fontSize: 11, color: '#4b5563', textAlign: 'center', lineHeight: 1.6 }}>
                   Comparing: Random Forest · XGBoost · Neural Network · Gradient Boosting · Logistic Regression · SVM · Ridge · Lasso
-                  <br />Cross-validated · may take 30–90s
+                  <br />5-fold cross-validation · may take 1–3 minutes · please wait
                 </div>
               )}
             </div>

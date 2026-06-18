@@ -124,6 +124,7 @@ router.post('/:datasetId/run', authenticate, async (req, res) => {
     res.json({ ...mlData, runId: saved.rows[0].id, narrative, governance });
   } catch (err) {
     if (err.code === 'ECONNREFUSED') return res.status(503).json({ error: 'Python ML service unavailable' });
+    if (err.code === '42P01' || err.message?.includes('does not exist')) return res.status(404).json({ error: 'Dataset data table not found — run the seed script or select a different dataset.' });
     res.status(500).json({ error: err.response?.data?.error || err.message });
   }
 });

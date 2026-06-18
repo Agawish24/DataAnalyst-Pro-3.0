@@ -729,7 +729,7 @@ def automl():
         try:
             import xgboost as xgb
             xgb_cls = xgb.XGBClassifier(n_estimators=50, max_depth=4, random_state=42,
-                                         use_label_encoder=False, eval_metric='logloss', verbosity=0)
+                                         eval_metric='logloss', verbosity=0)
             xgb_reg = xgb.XGBRegressor(n_estimators=50, max_depth=4, random_state=42, verbosity=0)
         except ImportError:
             pass

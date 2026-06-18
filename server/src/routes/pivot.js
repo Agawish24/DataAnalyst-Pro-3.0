@@ -192,6 +192,10 @@ const runCompute = async (datasetId, body, res) => {
     if (err.message?.includes('statement timeout') || err.code === '57014') {
       return res.status(408).json({ error: 'Query timed out (25 s). Too many rows or field combinations — apply filters or reduce fields.' });
     }
+    // PostgreSQL "relation does not exist" — data table not yet seeded
+    if (err.code === '42P01' || err.message?.includes('does not exist')) {
+      return res.status(404).json({ error: `Data table for this dataset has not been seeded yet. Run the server seed script to populate it, or choose a different dataset.` });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     if (client) client.release();
