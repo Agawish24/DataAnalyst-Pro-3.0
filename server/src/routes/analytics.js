@@ -37,8 +37,8 @@ router.post('/:datasetId/clustering', authenticate, async (req, res) => {
 router.post('/:datasetId/classification', authenticate, async (req, res) => {
   try {
     const rows = await getDatasetRows(req.params.datasetId);
-    const { target_column, feature_columns, target, features, ...rest } = req.body;
-    const payload = { data: rows, target: target || target_column, features: features || feature_columns, ...rest };
+    const { target_column, targetColumn, feature_columns, featureColumns, target, features, ...rest } = req.body;
+    const payload = { data: rows, target: target || target_column || targetColumn, features: features || feature_columns || featureColumns, ...rest };
     const response = await pyPost('/analytics/classification', payload, { timeout: 30000 });
     res.json(response.data);
   } catch (err) {
