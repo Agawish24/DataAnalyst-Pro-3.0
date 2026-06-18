@@ -262,4 +262,5 @@ Login credentials are stored as **environment secrets** (`SEED_ADMIN_EMAIL`, `SE
 12. **data_1 seed**: `server/src/seed_data1.js` — run when data_1 is empty. sale_id is INTEGER type (not text). customer_id is NUMERIC.
 13. **Masking preview**: Returns `{original, masked, rulesApplied}` (not `{preview}`). Masking types: `GET /api/masking/types` returns array.
 14. **Profiling response**: `{sample, columns, overview, quality, correlation, generatedAt, valueCounts}`. Frontend uses `profile.overview.rowCount` etc.
-15. **Dataset summary**: `GET /api/datasets/:id/summary` returns `{summary, quality, correlation}` (not flat object).
+15. **Dataset summary**: `GET /api/datasets/:id/summary` returns `{summary, quality, correlation}` (not flat object)...
+    
