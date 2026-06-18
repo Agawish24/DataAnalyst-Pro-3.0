@@ -94,6 +94,8 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
     }
 
     fs.unlinkSync(filePath);
+    const { logAction } = require('../utils/auditLog');
+    logAction({ userId: req.user.id, action: 'upload_dataset', resourceType: 'dataset', resourceId: dataset.id, meta: { name: dataset.name, rows: rows.length, columns: schema.length, source: ext }, ipAddress: req.ip });
     res.status(201).json({ ...dataset, schema, preview: rows.slice(0, 5) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -202,8 +204,11 @@ router.delete('/:id', authenticate, async (req, res) => {
     const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.id]);
     if (!ds.rows.length) return res.status(404).json({ error: 'Not found' });
     if (req.user.role !== 'admin' && ds.rows[0].uploaded_by !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+    const dsName = ds.rows[0].name;
     await pool.query(`DROP TABLE IF EXISTS data_${req.params.id}`);
     await pool.query('DELETE FROM datasets WHERE id=$1', [req.params.id]);
+    const { logAction } = require('../utils/auditLog');
+    logAction({ userId: req.user.id, action: 'delete_dataset', resourceType: 'dataset', resourceId: req.params.id, meta: { name: dsName }, ipAddress: req.ip });
     res.json({ message: 'Dataset deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -276,6 +281,26 @@ router.post('/google-sheets', authenticate, async (req, res) => {
       : err.message;
     res.status(500).json({ error: msg });
   }
+});
+
+// Export dataset as CSV (standard)
+router.get('/:id/export', authenticate, async (req, res) => {
+  try {
+    const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.id]);
+    if (!ds.rows.length) return res.status(404).json({ error: 'Not found' });
+    const data = await pool.query(`SELECT * FROM data_${req.params.id} ORDER BY row_index LIMIT 10000`);
+    const rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+    if (!rows.length) return res.status(400).json({ error: 'No data to export' });
+    const cols = Object.keys(rows[0]);
+    const header = cols.join(',');
+    const lines = rows.map(r => cols.map(c => { const v = String(r[c] ?? ''); return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g,'""')}"` : v; }).join(','));
+    const csv = [header, ...lines].join('\n');
+    const { logAction } = require('../utils/auditLog');
+    logAction({ userId: req.user.id, action: 'export_csv', resourceType: 'dataset', resourceId: req.params.id, meta: { name: ds.rows[0].name, rows: rows.length }, ipAddress: req.ip });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${ds.rows[0].name.replace(/[^a-z0-9]/gi,'_')}.csv"`);
+    res.send(csv);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Large dataset streaming export (chunked CSV for millions of rows)

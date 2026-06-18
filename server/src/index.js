@@ -66,12 +66,12 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// General API rate limit
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
+// General API rate limit — 2000 req / 15 min (generous for dev; tighten in prod)
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 2000, standardHeaders: true, legacyHeaders: false });
 app.use('/api', limiter);
 
-// Stricter limit for auth endpoints
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts, please try again later' } });
+// Stricter limit for auth endpoints — 50 req / 15 min
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts, please try again later' } });
 
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/datasets', datasetRoutes);

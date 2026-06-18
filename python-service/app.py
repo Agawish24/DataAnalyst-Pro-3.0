@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -10,14 +10,32 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
-import warnings
+import warnings, time, logging, os as _os
 warnings.filterwarnings('ignore')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S'
+)
+logger = logging.getLogger('python-analytics')
 
 app = Flask(__name__)
 CORS(app)
 
-import os as _os
 _PYTHON_API_KEY = _os.environ.get('PYTHON_SERVICE_API_KEY')
+
+@app.before_request
+def start_timer():
+    g.start_time = time.time()
+
+@app.after_request
+def log_request(response):
+    duration_ms = round((time.time() - g.start_time) * 1000, 1)
+    level = logging.WARNING if response.status_code >= 400 else logging.INFO
+    logger.log(level, '%s %s → %d (%s ms)', request.method, request.path, response.status_code, duration_ms)
+    response.headers['X-Duration-Ms'] = str(duration_ms)
+    return response
 
 @app.before_request
 def verify_internal_key():
@@ -28,6 +46,18 @@ def verify_internal_key():
         if incoming != _PYTHON_API_KEY:
             return jsonify({'error': 'Unauthorized — missing or invalid X-API-Key'}), 401
     return None
+
+def validate_df(df, min_rows=2, required_numeric=0, context='endpoint'):
+    """Validate a DataFrame before running ML. Returns (ok, error_str)."""
+    if df is None or df.empty:
+        return False, f'{context}: no data rows provided'
+    if len(df) < min_rows:
+        return False, f'{context}: need at least {min_rows} rows, got {len(df)}'
+    if required_numeric > 0:
+        n_numeric = len(df.select_dtypes(include=[np.number]).columns)
+        if n_numeric < required_numeric:
+            return False, f'{context}: need at least {required_numeric} numeric column(s), found {n_numeric}'
+    return True, None
 
 def df_from_rows(rows):
     df = pd.DataFrame(rows)
@@ -47,6 +77,9 @@ def regression():
     try:
         body = request.get_json()
         df = df_from_rows(body.get('data', []))
+        ok, err = validate_df(df, min_rows=10, required_numeric=1, context='regression')
+        if not ok:
+            return jsonify({'error': err}), 400
         target = body.get('target')
         features = body.get('features', [])
         model_type = body.get('model', 'linear')
@@ -108,6 +141,9 @@ def clustering():
     try:
         body = request.get_json()
         df = df_from_rows(body.get('data', []))
+        ok, err = validate_df(df, min_rows=5, required_numeric=1, context='clustering')
+        if not ok:
+            return jsonify({'error': err}), 400
         features = body.get('features', [])
         n_clusters = int(body.get('n_clusters', 3))
         algorithm = body.get('algorithm', 'kmeans')
@@ -196,6 +232,9 @@ def forecast():
     try:
         body = request.get_json()
         df = df_from_rows(body.get('data', []))
+        ok, err = validate_df(df, min_rows=4, context='forecast')
+        if not ok:
+            return jsonify({'error': err}), 400
         value_col = body.get('value_column')
         date_col = body.get('date_column')
         periods = int(body.get('periods', 10))
@@ -237,6 +276,9 @@ def outliers():
     try:
         body = request.get_json()
         df = df_from_rows(body.get('data', []))
+        ok, err = validate_df(df, min_rows=5, required_numeric=1, context='outlier_detection')
+        if not ok:
+            return jsonify({'error': err}), 400
         features = body.get('features', [])
 
         if not features:

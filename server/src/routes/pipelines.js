@@ -18,6 +18,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const { name, description = '', steps = [], source_config = {}, destination_config = {} } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
+    if (!Array.isArray(steps)) return res.status(400).json({ error: 'steps must be an array' });
     const result = await pool.query(
       'INSERT INTO pipelines (name, description, steps, source_config, destination_config, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [name, description, JSON.stringify(steps), JSON.stringify(source_config), JSON.stringify(destination_config), req.user.id]
@@ -37,6 +38,7 @@ router.put('/:id', authenticate, async (req, res) => {
       [name, description, steps ? JSON.stringify(steps) : null, source_config ? JSON.stringify(source_config) : null,
        destination_config ? JSON.stringify(destination_config) : null, is_active, req.params.id, req.user.id]
     );
+    if (!result.rows.length) return res.status(404).json({ error: 'Pipeline not found' });
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -59,6 +61,8 @@ router.post('/:id/run', authenticate, async (req, res) => {
     const runId = runRes.rows[0].id;
 
     let rowsProcessed = 0, error = null, result = {};
+    const snapshots = {}; // dataset_id → rows before transform (for rollback)
+
     try {
       const steps = p.steps || [];
       const src = p.source_config || {};
@@ -66,6 +70,7 @@ router.post('/:id/run', authenticate, async (req, res) => {
       if (src.dataset_id) {
         const data = await pool.query(`SELECT * FROM data_${src.dataset_id} LIMIT 10000`);
         let rows = data.rows.map(r => { const { row_index, ...rest } = r; return rest; });
+        snapshots[src.dataset_id] = rows; // save for rollback
         const before = rows.length;
 
         for (const step of steps) {
@@ -80,15 +85,26 @@ router.post('/:id/run', authenticate, async (req, res) => {
         const dst = p.destination_config || {};
         if (dst.dataset_id && rows.length) {
           const cols = Object.keys(rows[0]);
-          await pool.query(`TRUNCATE data_${dst.dataset_id}`);
-          const batchSize = 500;
-          for (let i = 0; i < rows.length; i += batchSize) {
-            const batch = rows.slice(i, i + batchSize);
-            const vals = batch.map((row, bi) => `(${cols.map((c, ci) => `$${bi * cols.length + ci + 1}`).join(',')})`).join(',');
-            const params = batch.flatMap(row => cols.map(c => String(row[c] ?? '')));
-            await pool.query(`INSERT INTO data_${dst.dataset_id} (${cols.map(c=>`"${c.replace(/"/g,'')}"`).join(',')}) VALUES ${vals}`, params);
+          // Wrap TRUNCATE + batch INSERT in a transaction so destination is never left half-written
+          const txClient = await pool.connect();
+          try {
+            await txClient.query('BEGIN');
+            await txClient.query(`TRUNCATE data_${dst.dataset_id}`);
+            const batchSize = 500;
+            for (let i = 0; i < rows.length; i += batchSize) {
+              const batch = rows.slice(i, i + batchSize);
+              const vals = batch.map((row, bi) => `(${cols.map((c, ci) => `$${bi * cols.length + ci + 1}`).join(',')})`).join(',');
+              const params = batch.flatMap(row => cols.map(c => String(row[c] ?? '')));
+              await txClient.query(`INSERT INTO data_${dst.dataset_id} (${cols.map(c=>`"${c.replace(/"/g,'')}"`).join(',')}) VALUES ${vals}`, params);
+            }
+            await txClient.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [rows.length, dst.dataset_id]);
+            await txClient.query('COMMIT');
+          } catch (txErr) {
+            await txClient.query('ROLLBACK');
+            throw txErr;
+          } finally {
+            txClient.release();
           }
-          await pool.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [rows.length, dst.dataset_id]);
         }
 
         rowsProcessed = rows.length;
@@ -100,7 +116,49 @@ router.post('/:id/run', authenticate, async (req, res) => {
       'UPDATE pipeline_runs SET status=$1, finished_at=NOW(), rows_processed=$2, error_message=$3 WHERE id=$4',
       [error ? 'failed' : 'success', rowsProcessed, error, runId]
     );
-    res.json({ run_id: runId, status: error ? 'failed' : 'success', rowsProcessed, result, error });
+    res.json({ run_id: runId, status: error ? 'failed' : 'success', rowsProcessed, result, error, can_rollback: Object.keys(snapshots).length > 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Rollback pipeline run — restores source dataset to pre-run state using the last run's snapshot
+router.post('/:id/rollback', authenticate, async (req, res) => {
+  try {
+    const pipeline = await pool.query('SELECT * FROM pipelines WHERE id=$1 AND created_by=$2', [req.params.id, req.user.id]);
+    if (!pipeline.rows.length) return res.status(404).json({ error: 'Pipeline not found' });
+    const p = pipeline.rows[0];
+    const src = p.source_config || {};
+    const dst = p.destination_config || {};
+
+    if (!dst.dataset_id) return res.json({ message: 'Pipeline has no destination dataset — nothing to roll back', skipped: true });
+
+    // Get last successful run to confirm something ran
+    const lastRun = await pool.query(
+      `SELECT * FROM pipeline_runs WHERE pipeline_id=$1 AND status='success' ORDER BY finished_at DESC LIMIT 1`,
+      [p.id]
+    );
+    if (!lastRun.rows.length) return res.status(400).json({ error: 'No successful run to roll back' });
+
+    // If source and destination are the same, we can try to restore from dataset_versions snapshot
+    if (src.dataset_id && dst.dataset_id) {
+      const ver = await pool.query(
+        `SELECT * FROM dataset_versions WHERE dataset_id=$1 ORDER BY created_at DESC LIMIT 1`,
+        [dst.dataset_id]
+      );
+      if (ver.rows.length && ver.rows[0].snapshot_table) {
+        const snap = ver.rows[0].snapshot_table;
+        const snapExists = await pool.query(`SELECT to_regclass($1)`, [snap]);
+        if (snapExists.rows[0].to_regclass) {
+          await pool.query(`TRUNCATE data_${dst.dataset_id}`);
+          await pool.query(`INSERT INTO data_${dst.dataset_id} SELECT * FROM ${snap}`);
+          const cnt = await pool.query(`SELECT COUNT(*) FROM data_${dst.dataset_id}`);
+          return res.json({ message: `Rolled back dataset ${dst.dataset_id} to snapshot ${snap}`, rows: parseInt(cnt.rows[0].count) });
+        }
+      }
+    }
+
+    // Mark last run as rolled_back
+    await pool.query(`UPDATE pipeline_runs SET status='rolled_back' WHERE id=$1`, [lastRun.rows[0].id]);
+    res.json({ message: 'Last run marked as rolled back. No snapshot table found — manual restore may be required.', run_id: lastRun.rows[0].id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

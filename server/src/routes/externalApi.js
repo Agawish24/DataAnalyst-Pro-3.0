@@ -150,11 +150,13 @@ router.post('/keys', authenticate, async (req, res) => {
     const keyPrefix = rawKey.slice(0, 12) + '...';
     const expiresAt = expires_days ? new Date(Date.now() + expires_days * 86400000) : null;
 
+    // scopes is text[] in PostgreSQL — pass JS array directly (pg driver handles it)
+    const scopesArr = Array.isArray(resolvedPerms) ? resolvedPerms : Object.keys(resolvedPerms);
     const result = await pool.query(
       `INSERT INTO api_keys (name, key_hash, key_prefix, user_id, scopes)
        VALUES ($1,$2,$3,$4,$5)
        RETURNING id, name, key_prefix, is_active, scopes, created_at`,
-      [name, keyHash, keyPrefix, req.user.id, JSON.stringify(resolvedPerms)]
+      [name, keyHash, keyPrefix, req.user.id, scopesArr]
     );
     res.status(201).json({ ...result.rows[0], raw_key: rawKey, warning: 'Store this key securely — it will NOT be shown again.' });
   } catch (err) { res.status(500).json({ error: err.message }); }

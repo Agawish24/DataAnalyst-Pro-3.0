@@ -43,11 +43,21 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (!result.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!result.rows.length) {
+      pool.query(`INSERT INTO audit_logs (user_id,action,resource_type,metadata,ip_address) VALUES(NULL,'login_failed','user',$1,$2)`,
+        [JSON.stringify({ email, reason: 'user_not_found' }), req.ip]).catch(()=>{});
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!valid) {
+      pool.query(`INSERT INTO audit_logs (user_id,action,resource_type,metadata,ip_address) VALUES($1,'login_failed','user',$2,$3)`,
+        [user.id, JSON.stringify({ email, reason: 'bad_password' }), req.ip]).catch(()=>{});
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    pool.query(`INSERT INTO audit_logs (user_id,action,resource_type,resource_id,metadata,ip_address) VALUES($1,'login','user',$2,$3,$4)`,
+      [user.id, String(user.id), JSON.stringify({ email, role: user.role }), req.ip]).catch(()=>{});
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, bio: user.bio, avatar_color: user.avatar_color, email_verified: user.email_verified } });
   } catch (err) {
     res.status(500).json({ error: err.message });

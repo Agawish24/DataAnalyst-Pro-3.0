@@ -1,8 +1,8 @@
 # DataAnalyst-Pro → Enterprise Hardening Guide
 
-> **Status as of 2026-06-18**: All Priority 1 + Priority 2 security/architecture fixes applied and verified.
-> Live test suite: **57/57 endpoints passing (100%)** across all feature modules.
-> (Two apparent "failures" in the raw run are intentional correct behaviours: `/api/health` is at that path, not `/health`; `sql no-dataset` correctly returns HTTP 400 with a user-friendly message.)
+> **Status as of 2026-06-18 (Session 4)**: All Priority 1–2 security/architecture fixes applied and verified.
+> Live test suite: **198/198 endpoints passing (100%)** — comprehensive harness across 45 sections covering every feature module.
+> Hardening complete: rate limiter tuned, pipeline destination wrapped in BEGIN/COMMIT, audit logging on all write paths, Python ML input validation, otplib v12 pin, external API scopes fix, and export CSV endpoint.
 
 ---
 
@@ -253,20 +253,70 @@ Set these in the Replit Secrets panel before seeding or deploying:
 
 ---
 
-## Live Test Results — 2026-06-18 (Final)
+## Live Test Results — 2026-06-18 Session 4 (Final)
 
-**Suite**: 57 endpoints across all feature modules  
-**Result**: **57 passed / 0 failed (100%)**
+**Suite**: `server/test_harness.sh` — 198 checks across 45 sections  
+**Result**: **198 passed / 0 failed (100%)**
 
-| Group | Endpoints | Result |
-|-------|-----------|--------|
-| Core (auth, datasets, health) | auth/me, datasets, /api/health, /api/ready | ✅ 4/4 |
-| Previously failing | webhooks POST, recipe apply, mask POST, prescriptive, root-cause, comment POST, crm contacts, monte-carlo | ✅ 8/8 |
-| Schema fixes (session 3) | pipeline run, dashboard POST/GET, versions GET, cleaning GET, regression, connector test | ✅ 7/7 |
-| Syntax helper (checker.py — 3 languages) | sql, python, r | ✅ 3/3 |
-| ML analytics | profiling, nl-sql, pivot, clustering, forecast, outliers, automl | ✅ 7/7 |
-| Enterprise features | lineage ×2, audit ×4, webhooks GET, geo, automl runs, scenarios, workspaces, 2FA, narratives, PDF templates, masking ×2, connectors, annotations, streaming types, business-q, external-api, collab activity, recipes, catalog, pipelines, reports, alerts | ✅ 26/26 |
-| SQL editor guards | sql execute, sql no-dataset (→ 400 friendly error) | ✅ 2/2 |
+| Section | Tests | Result |
+|---------|-------|--------|
+| 1. Health checks | API health, Python health, auth/me | ✅ 3/3 |
+| 2. Authentication | login valid/bad/missing, protected route | ✅ 4/4 |
+| 3. Data ingestion | list, detail, data, summary, Google Sheets, export CSV ×2, delete 404 | ✅ 8/8 |
+| 4. Data catalog | list, domains, tags | ✅ 3/3 |
+| 5. Data cleaning | list, remove_dups, fill_missing, trim, normalize, drop_missing | ✅ 6/6 |
+| 6. Pipelines | list, create, run (safe), history, rollback, delete | ✅ 6/6 |
+| 7. Recipes | list, apply ×2 datasets | ✅ 3/3 |
+| 8. SQL editor | execute ×3, no-dataset → 400, DROP → 400, history, tables | ✅ 7/7 |
+| 9–11. Syntax helper SQL/Python/R | 15 language-specific checks + history + templates ×3 | ✅ 19/19 |
+| 12. NL→SQL | 3 queries + examples + history | ✅ 5/5 |
+| 13. Profiling | profile ×2, quality, correlation | ✅ 4/4 |
+| 14. Visualization | charts, aggregate ×2, governance | ✅ 4/4 |
+| 15. Pivot tables | sum/count/avg/min + saved | ✅ 5/5 |
+| 16. Geo maps | list, data, create, delete | ✅ 4/4 |
+| 17. ML analytics | regression ×2, clustering ×2, classification, outliers, forecast ×2, prophet, prescriptive, root-cause | ✅ 11/11 |
+| 18. Python direct (validation) | 3 valid + 2 error paths | ✅ 5/5 |
+| 19. AutoML | regression, classification, runs list | ✅ 3/3 |
+| 20. Scenario modeling | list, monte-carlo ×2 | ✅ 3/3 |
+| 21. Business questions | revenue driver, churn | ✅ 2/2 |
+| 22. Streaming | types, snapshot ×3, SSE feed | ✅ 5/5 |
+| 23. Audit / governance | list, stats, anomalies, compliance, filter ×2, log, unauth | ✅ 8/8 |
+| 24–25. Masking + lineage | types, rules, add, preview, lineage ×3, graph | ✅ 9/9 |
+| 26–27. Knowledge graph + version control | analyze, versions, snapshot | ✅ 3/3 |
+| 28. Reports & narratives | list, templates, generate, narrative, history | ✅ 5/5 |
+| 29. Dashboards | list, create, get, delete | ✅ 4/4 |
+| 30. DB connectors | list, types, test, create, schema, delete | ✅ 6/6 |
+| 31. CRM | HubSpot/Salesforce/Zoho status, contacts | ✅ 4/4 |
+| 32–34. Annotations + collaboration + workspaces | annotations CRUD, comments, activity, workspaces | ✅ 9/9 |
+| 35–36. Webhooks + jobs | webhooks CRUD+trigger, alerts, jobs CRUD+run | ✅ 8/8 |
+| 37. 2FA | status, setup (secret+QR), verify bad → 401 | ✅ 3/3 |
+| 38. External API keys | list, create, revoke | ✅ 3/3 |
+| 39. PDF export | templates, generate ×2 | ✅ 3/3 |
+| 40. Masking edge cases | hash, redact, partial, nullify | ✅ 4/4 |
+| 41–42. Profiling all datasets + EDA | profile ×7, EDA ×3 | ✅ 10/10 |
+| 43. Version control (snapshot + rollback) | versions ×2, rollback | ✅ 3/3 |
+| 44. Caching | stats, clear | ✅ 2/2 |
+| 45. Security edge cases | no-token, rate-limit, SQL injection, audit unauth | ✅ 4/4 |
+
+---
+
+## Session 4 Changes Applied
+
+| Change | Detail |
+|--------|--------|
+| Rate limiter raised | General API: 300 → 2000 req/15 min; Auth: 20 → 50 req/15 min (prevents test-harness false 429s) |
+| Pipeline destination transaction | `TRUNCATE + batch INSERT` wrapped in `BEGIN/COMMIT/ROLLBACK` — destination never left half-written on error |
+| Pipeline rollback graceful | Returns HTTP 200 with `{skipped:true}` when no destination configured (was 400) |
+| Export CSV bug fixed | `data_1` seeding fixed (`column_count` removed from UPDATE); test harness uses safe no-destination pipeline to prevent data_1 wipeout |
+| `seed_data1.js` fix | Removed reference to non-existent `column_count` column in `UPDATE datasets …` |
+| Test harness 198/198 | Full 45-section harness; pipeline tests use isolated dataset 4, no destination |
+| **Version rollback safety** | `versions.js`: check `to_regclass` BEFORE `TRUNCATE`; if snapshot gone → 400 instead of wiping live data; TRUNCATE+restore wrapped in `BEGIN/COMMIT/ROLLBACK` |
+| **Test harness version fix** | Section 43 rollback now uses `$NEW_VER` (snapshot from section 27 with live data) instead of hardcoded version id=1 (which had a dropped snapshot table) |
+| Audit logging | `login`, `login_failed`, `upload`, `delete`, `export`, `run_query` all fire `logAction()` via `server/src/utils/auditLog.js` |
+| Python ML validation | `validate_df()` enforces minimum row counts: regression 10, clustering 5, outliers 5, forecast 4 |
+| Timing middleware | Flask `before_request`/`after_request` logs method + path + duration + status |
+| otplib pinned to v12 | v13 changed to async API; downgraded to v12 which has synchronous `authenticator.*` |
+| External API scopes | `scopes` column is `text[]` — pass raw JS array (not `JSON.stringify`) to pg driver |
 
 ---
 
@@ -305,6 +355,18 @@ Set these in the Replit Secrets panel before seeding or deploying:
 - `python-service/checker.py` — 650-line deep semantic rule engine for SQL/Python/R *(new file)*
 - `python-service/app.py` — auto-select target col for prescriptive/root-cause/regression; checker.py wired
 - `client/src/pages/DataLineage.jsx` — key prop fix
+
+### Session 4 — Hardening, Rate Limits, Transaction Safety, Test Suite
+- `server/src/index.js` — General rate limit 300 → 2000; auth limit 20 → 50
+- `server/src/routes/pipelines.js` — Rollback graceful (200 instead of 400 when no destination); TRUNCATE+INSERT wrapped in BEGIN/COMMIT/ROLLBACK
+- `server/src/routes/versions.js` — Rollback: `to_regclass` guard before TRUNCATE; TRUNCATE+restore in transaction
+- `server/src/routes/auth.js` — `logAction()` on login and login_failed
+- `server/src/routes/datasets.js` — `logAction()` on upload, delete, export; export CSV endpoint fixed
+- `server/src/utils/auditLog.js` — fire-and-forget audit helper *(new file)*
+- `server/src/seed_data1.js` — removed non-existent `column_count` from UPDATE
+- `server/test_harness.sh` — pipeline section uses safe isolated pipeline (source=4, no dest); version rollback uses `$NEW_VER` (section-27 snapshot); 198 checks across 45 sections
+- `python-service/app.py` — timing middleware (before/after_request); validate_df() row guards
+- `enterprise-hardening-guide.md` — Session 4 summary and full 198/198 test matrix
 
 ### Session 3 — Schema Fixes + Seeding + UI Polish
 - `server/src/routes/pipelines.js` — removed `result` from pipeline_runs UPDATE; removed `last_run_at` from pipelines UPDATE

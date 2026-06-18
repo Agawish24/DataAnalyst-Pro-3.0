@@ -60,14 +60,29 @@ router.post('/:datasetId/rollback/:versionId', authenticate, async (req, res) =>
     if (!version.rows.length) return res.status(404).json({ error: 'Version not found' });
     const v = version.rows[0];
 
-    // Replace current data
-    await pool.query(`TRUNCATE data_${req.params.datasetId}`);
-    const cols = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name!='row_index' ORDER BY ordinal_position`, [v.snapshot_table]);
-    const colList = cols.rows.map(c => `"${c.column_name}"`).join(',');
-    if (colList) {
-      await pool.query(`INSERT INTO data_${req.params.datasetId} (${colList}) SELECT ${colList} FROM ${v.snapshot_table}`);
+    // Verify snapshot table still exists before destructively truncating live data
+    const snapCheck = await pool.query(`SELECT to_regclass($1)`, [v.snapshot_table]);
+    if (!snapCheck.rows[0].to_regclass) {
+      return res.status(400).json({ error: `Snapshot table "${v.snapshot_table}" no longer exists — cannot roll back to version ${v.version_number}` });
     }
-    await pool.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [v.row_count, req.params.datasetId]);
+    // Wrap TRUNCATE + restore in a transaction so data is never left half-written
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`TRUNCATE data_${req.params.datasetId}`);
+      const cols = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name!='row_index' ORDER BY ordinal_position`, [v.snapshot_table]);
+      const colList = cols.rows.map(c => `"${c.column_name}"`).join(',');
+      if (colList) {
+        await client.query(`INSERT INTO data_${req.params.datasetId} (${colList}) SELECT ${colList} FROM ${v.snapshot_table}`);
+      }
+      await client.query('UPDATE datasets SET row_count=$1, updated_at=NOW() WHERE id=$2', [v.row_count, req.params.datasetId]);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
     res.json({ message: `Rolled back to version ${v.version_number}`, version: v });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

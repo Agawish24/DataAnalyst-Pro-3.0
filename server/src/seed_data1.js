@@ -81,7 +81,7 @@ const run = async () => {
   const existing_names = schemaArr.map(c => c.name);
   if (!existing_names.includes('lat')) schemaArr.push({ name: 'lat', type: 'numeric' });
   if (!existing_names.includes('lng')) schemaArr.push({ name: 'lng', type: 'numeric' });
-  await pool.query('UPDATE datasets SET schema=$1, row_count=500, column_count=$2, updated_at=NOW() WHERE id=1', [JSON.stringify(schemaArr), schemaArr.length]);
+  await pool.query('UPDATE datasets SET schema=$1, row_count=500, updated_at=NOW() WHERE id=1', [JSON.stringify(schemaArr)]);
 
   // Update geo_layers for data_1 to use lat/lng columns that now exist
   await pool.query(`UPDATE geo_layers SET lat_col='lat', lng_col='lng', value_col='revenue' WHERE dataset_id=1`);

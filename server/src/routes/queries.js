@@ -86,6 +86,9 @@ const executeSQL = async (req, res) => {
       [datasetId || null, req.user.id, sql, result.rowCount || 0, executionTime]
     );
 
+    const { logAction } = require('../utils/auditLog');
+    logAction({ userId: req.user.id, action: 'run_query', resourceType: 'dataset', resourceId: datasetId || null, meta: { rowCount: result.rowCount, executionTime, command: result.command }, ipAddress: req.ip });
+
     res.json({
       rows: result.rows,
       rowCount: result.rowCount,
