@@ -1,0 +1,46 @@
+
+RUN npm install --prefix client --include=dev && npm run build --prefix client && npm install --prefix server --omit=dev && pip install -r python-service/requirements.txt
+8s
+added 272 packages, and audited 273 packages in 5s
+52 packages are looking for funding
+  run `npm fund` for details
+6 vulnerabilities (1 low, 1 moderate, 4 high)
+To address all issues, run:
+  npm audit fix
+Run `npm audit` for details.
+> client@0.0.0 build
+> vite build
+vite v8.0.10 building client environment for production...
+
+transforming...
+✓ 2418 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                          0.46 kB │ gzip:   0.30 kB
+dist/assets/leaflet-vh-t_kPv.css        15.09 kB │ gzip:   6.36 kB
+dist/assets/index-myXZNOLU.css          26.80 kB │ gzip:   5.26 kB
+dist/assets/leaflet-src-Blfi56kz.js    148.81 kB │ gzip:  43.38 kB
+dist/assets/index-vx_qfuvy.js        1,673.80 kB │ gzip: 437.38 kB
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 610ms
+npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+npm warn deprecated @otplib/preset-default@12.0.1: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+npm warn deprecated @otplib/plugin-thirty-two@12.0.1: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+npm warn deprecated @otplib/plugin-crypto@12.0.1: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated uuid@8.3.2: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+added 229 packages, and audited 230 packages in 2s
+31 packages are looking for funding
+  run `npm fund` for details
+3 vulnerabilities (2 moderate, 1 high)
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+Some issues need review, and may require choosing
+a different dependency.
+Run `npm audit` for details.
+/bin/bash: line 1: pip: command not found
+Build Failed: build daemon returned an error < failed to solve: process "/bin/bash -ol pipefail -c npm install --prefix client --include=dev && npm run build --prefix client && npm install --prefix server --omit=dev && pip install -r python-service/requirements.txt" did not complete successfully: exit code: 127 >
