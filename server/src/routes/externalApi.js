@@ -59,7 +59,7 @@ const apiKeyAuth = async (req, res, next) => {
     const result = await pool.query(
       `SELECT ak.*, u.id as user_id, u.name as user_name, u.role as user_role
        FROM api_keys ak JOIN users u ON ak.user_id=u.id
-       WHERE ak.key_hash=$1 AND ak.is_active=true AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`,
+       WHERE ak.key_hash=$1 AND ak.is_active=true`,
       [crypto.createHash('sha256').update(key).digest('hex')]
     );
     if (!result.rows.length) return apiError(res, 401, 'INVALID_OR_EXPIRED_KEY', 'Invalid or expired API key', 'Generate a new key at /external-api');
