@@ -1183,7 +1183,9 @@ def explain():
         task_type = body.get('task_type', 'auto')
 
         df = pd.DataFrame(rows)
-        validate_df(df, min_rows=10, context='explain')
+        ok, err = validate_df(df, min_rows=10, context='explain')
+        if not ok:
+            return jsonify({'error': err}), 400
         if target_col not in df.columns:
             return jsonify({'error': f'Target column "{target_col}" not found'}), 400
 
@@ -1191,6 +1193,8 @@ def explain():
         if not feature_cols:
             feature_cols = [c for c in df.columns if c != target_col]
         feature_cols = [c for c in feature_cols if c in df.columns]
+        if not feature_cols:
+            return jsonify({'error': 'Need at least one feature column beyond target column'}), 400
 
         X = df[feature_cols].copy()
         y = df[target_col].copy()
@@ -1290,7 +1294,9 @@ def bias_check():
         feature_cols = body.get('feature_cols', [])
 
         df = pd.DataFrame(rows)
-        validate_df(df, min_rows=20, context='bias_check')
+        ok, err = validate_df(df, min_rows=20, context='bias_check')
+        if not ok:
+            return jsonify({'error': err}), 400
         if target_col not in df.columns:
             return jsonify({'error': f'Target column "{target_col}" not found'}), 400
         if protected_col not in df.columns:
@@ -1300,6 +1306,8 @@ def bias_check():
         if not feature_cols:
             feature_cols = [c for c in df.columns if c not in [target_col, protected_col]]
         feature_cols = [c for c in feature_cols if c in df.columns]
+        if not feature_cols:
+            return jsonify({'error': 'Need at least one feature column beyond target and protected columns'}), 400
 
         X = df[feature_cols].copy()
         for col in X.select_dtypes(include='object').columns:
@@ -1549,7 +1557,9 @@ def benchmark():
         task_type = body.get('task_type', 'auto')
 
         df = pd.DataFrame(rows)
-        validate_df(df, min_rows=10, context='benchmark')
+        ok, err = validate_df(df, min_rows=10, context='benchmark')
+        if not ok:
+            return jsonify({'error': err}), 400
         if target_col not in df.columns:
             return jsonify({'error': f'Target column "{target_col}" not found'}), 400
 
@@ -1633,7 +1643,9 @@ def causal():
         control_cols = body.get('control_cols', [])
 
         df = pd.DataFrame(rows)
-        validate_df(df, min_rows=20, context='causal')
+        ok, err = validate_df(df, min_rows=20, context='causal')
+        if not ok:
+            return jsonify({'error': err}), 400
         if treatment_col not in df.columns:
             return jsonify({'error': f'Treatment column "{treatment_col}" not found'}), 400
         if outcome_col not in df.columns:
@@ -1645,6 +1657,8 @@ def causal():
         control_cols = [c for c in control_cols if c in df.columns]
 
         t_vals = pd.to_numeric(df[treatment_col], errors='coerce').fillna(0)
+        if t_vals.nunique() <= 1:
+            return jsonify({'error': f'Treatment column "{treatment_col}" has no variation (all values are identical). Cannot perform causal inference.'}), 400
         T = (t_vals > t_vals.median()).astype(int).values
         Y = pd.to_numeric(df[outcome_col], errors='coerce').fillna(0).values
 
