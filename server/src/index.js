@@ -63,7 +63,11 @@ const PORT = process.env.PORT || 3001;
 
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(compression());
+app.use(compression({ filter: (req, res) => {
+  // Disable compression for SSE endpoints to prevent buffering
+  if (req.path && req.path.includes('/streaming/')) return false;
+  return compression.filter(req, res);
+}}));
 app.use(morgan('dev'));
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())

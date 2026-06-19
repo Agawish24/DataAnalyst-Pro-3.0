@@ -111,16 +111,27 @@ router.get('/feed', (req, res) => {
   const generator = mockGenerators[feedType] || mockGenerators.sales;
   let i = 0;
 
-  res.write(`data: ${JSON.stringify({ type: 'connected', feedType, intervalMs, ts: Date.now() })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: 'connected', feedType, intervalMs, ts: Date.now() })}
+
+`);
+  if (res.flush) res.flush();
 
   const timer = setInterval(() => {
     if (!res.writable) { clearInterval(timer); return; }
     try {
       const point = generator(i++);
-      res.write(`data: ${JSON.stringify({ ...point, _seq: i, _type: feedType })}\n\n`);
+      res.write(`data: ${JSON.stringify({ ...point, _seq: i, _type: feedType })}
+
+`);
+      if (res.flush) res.flush();
     } catch (e) { 
       console.error('[streaming/feed error]', e.message);
-      if (res.writable) res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      if (res.writable) {
+        res.write(`data: ${JSON.stringify({ error: e.message })}
+
+`);
+        if (res.flush) res.flush();
+      }
       clearInterval(timer); 
     }
   }, intervalMs);
@@ -139,7 +150,9 @@ router.get('/feed/dataset/:id', authenticate, async (req, res) => {
 
   try {
     const ds = await pool.query('SELECT * FROM datasets WHERE id=$1', [req.params.id]);
-    if (!ds.rows.length) { res.write(`data: ${JSON.stringify({ error: 'Dataset not found' })}\n\n`); return res.end(); }
+    if (!ds.rows.length) { res.write(`data: ${JSON.stringify({ error: 'Dataset not found' })}
+
+`); return res.end(); }
 
     const rows = await pool.query(`SELECT * FROM "data_${req.params.id}" ORDER BY row_index LIMIT 5000`);
     const data = rows.rows.map(r => { const { row_index, ...rest } = r; return rest; });
@@ -147,23 +160,34 @@ router.get('/feed/dataset/:id', authenticate, async (req, res) => {
     const loop = req.query.loop === 'true';
     let i = 0;
 
-    res.write(`data: ${JSON.stringify({ type: 'connected', dataset: ds.rows[0].name, total: data.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'connected', dataset: ds.rows[0].name, total: data.length })}
+
+`);
+    if (res.flush) res.flush();
 
     const timer = setInterval(() => {
       if (!res.writable) { clearInterval(timer); return; }
       if (i >= data.length) {
         if (loop) { i = 0; } else {
-          res.write(`data: ${JSON.stringify({ type: 'done', total: data.length })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done', total: data.length })}
+
+`);
+          if (res.flush) res.flush();
           clearInterval(timer); return;
         }
       }
-      res.write(`data: ${JSON.stringify({ ...data[i], _seq: i, timestamp: new Date().toISOString() })}\n\n`);
+      res.write(`data: ${JSON.stringify({ ...data[i], _seq: i, timestamp: new Date().toISOString() })}
+
+`);
+      if (res.flush) res.flush();
       i++;
     }, intervalMs);
 
     req.on('close', () => clearInterval(timer));
   } catch (e) {
-    res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: e.message })}
+
+`);
     res.end();
   }
 });
