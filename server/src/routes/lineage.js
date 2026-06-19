@@ -57,7 +57,7 @@ const classifySensitivity = (colName, colType, maskType) => {
 const registerNode = async (type, nodeId, name, metadata = {}) => {
   const existing = await pool.query('SELECT id FROM lineage_nodes WHERE node_type=$1 AND node_id=$2', [type, nodeId]);
   if (existing.rows.length) return existing.rows[0].id;
-  const r = await pool.query('INSERT INTO lineage_nodes (node_type, node_id, node_name, metadata) VALUES ($1,$2,$3,$4) RETURNING id', [type, nodeId, name, JSON.stringify(metadata)]);
+  const r = await pool.query('INSERT INTO lineage_nodes (node_type, node_id, label, metadata) VALUES ($1,$2,$3,$4) RETURNING id', [type, nodeId, name, JSON.stringify(metadata)]);
   return r.rows[0].id;
 };
 const registerEdge = async (sourceId, targetId, edgeType, metadata = {}) => {

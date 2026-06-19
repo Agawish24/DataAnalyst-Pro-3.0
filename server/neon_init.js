@@ -357,7 +357,7 @@ async function seedUsers() {
   await q(`INSERT INTO users (name,email,password_hash,role,email_verified,avatar_color) VALUES
     ('Admin',$1,$2,'admin',true,'#6366f1'),
     ('Analyst',$3,$4,'analyst',true,'#10b981')
-    ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash`, [adminEmail, h1, analystEmail, h2]);
+    ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, role=EXCLUDED.role`, [adminEmail, h1, analystEmail, h2]);
   console.log('✅ Admin and analyst users seeded');
 }
 
