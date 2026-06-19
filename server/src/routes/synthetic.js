@@ -39,9 +39,9 @@ router.post('/save', authenticate, async (req, res) => {
     const schemaArr = schema || Object.keys(rows[0]).map(k => ({ name: k, type: 'text' }));
 
     const dsResult = await pool.query(
-      `INSERT INTO datasets (name, description, row_count, column_count, schema, source, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,'synthetic',$6) RETURNING *`,
-      [name, description || `Synthetic: ${name}`, rows.length, schemaArr.length,
+      `INSERT INTO datasets (name, description, row_count, schema, source, uploaded_by)
+       VALUES ($1,$2,$3,$4,'synthetic',$5) RETURNING *`,
+      [name, description || `Synthetic: ${name}`, rows.length,
        JSON.stringify(schemaArr), req.user.id]
     );
     const ds = dsResult.rows[0];
