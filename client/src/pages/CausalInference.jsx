@@ -1,19 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { GitMerge, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 export default function CausalInference() {
-  const { datasets, activeDataset, selectDataset } = useData();
+  const { datasets, activeDataset, selectDataset, fetchDatasets } = useData();
   const [treatment, setTreatment] = useState('');
   const [outcome, setOutcome] = useState('');
+
+  useEffect(() => { fetchDatasets(); }, []);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -28,12 +26,12 @@ export default function CausalInference() {
     setLoading(true);
     try {
       const controlCols = cols.filter(c => c !== treatment && c !== outcome);
-      const r = await axios.post(`${API}/causal/${activeDataset.id}/run`,
-        { treatment_col: treatment, outcome_col: outcome, control_cols: controlCols }, ax());
+      const r = await api.post(`/causal/${activeDataset.id}/run`,
+        { treatment_col: treatment, outcome_col: outcome, control_cols: controlCols });
       setResult(r.data);
       toast.success('Causal inference complete');
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Analysis failed');
+      toast.error(e.response?.data?.error || e.message || 'Analysis failed');
     } finally { setLoading(false); }
   };
 

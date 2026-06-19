@@ -1,20 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, ReferenceLine } from 'recharts';
 import { Brain, ChevronDown, ChevronRight, Sparkles, AlertCircle } from 'lucide-react';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
-
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 export default function ExplainableAI() {
-  const { datasets, activeDataset, selectDataset } = useData();
+  const { datasets, activeDataset, selectDataset, fetchDatasets } = useData();
   const [target, setTarget] = useState('');
   const [taskType, setTaskType] = useState('auto');
+
+  useEffect(() => { fetchDatasets(); }, []);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
@@ -29,13 +27,13 @@ export default function ExplainableAI() {
     setLoading(true);
     try {
       const featureCols = cols.filter(c => c !== target);
-      const r = await axios.post(`${API}/explainable-ai/${activeDataset.id}/explain`,
-        { target_col: target, feature_cols: featureCols, task_type: taskType }, ax());
+      const r = await api.post(`/explainable-ai/${activeDataset.id}/explain`,
+        { target_col: target, feature_cols: featureCols, task_type: taskType });
       setResult(r.data);
       setActivePdp(r.data.partial_dependence ? Object.keys(r.data.partial_dependence)[0] : null);
       toast.success('Explainability analysis complete');
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Analysis failed');
+      toast.error(e.response?.data?.error || e.message || 'Analysis failed');
     } finally { setLoading(false); }
   };
 

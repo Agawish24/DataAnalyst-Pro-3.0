@@ -321,6 +321,23 @@ async function createSchema() {
     connected_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
   )`);
 
+  await q(`CREATE TABLE IF NOT EXISTS benchmark_runs (
+    id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    dataset_id INTEGER, target_col TEXT, task_type TEXT,
+    results JSONB DEFAULT '{}', total_ms INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+  )`);
+
+  await q(`CREATE TABLE IF NOT EXISTS data_contracts (
+    id SERIAL PRIMARY KEY, name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    dataset_id INTEGER REFERENCES datasets(id) ON DELETE SET NULL,
+    rules JSONB DEFAULT '[]',
+    created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    last_validated_at TIMESTAMP, last_score INTEGER,
+    created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+
   console.log('✅ All tables created');
 }
 

@@ -1,13 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar, Legend } from 'recharts';
 import { Scale, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 const VERDICT_STYLES = {
@@ -17,9 +13,11 @@ const VERDICT_STYLES = {
 };
 
 export default function BiasFairness() {
-  const { datasets, activeDataset, selectDataset } = useData();
+  const { datasets, activeDataset, selectDataset, fetchDatasets } = useData();
   const [target, setTarget] = useState('');
   const [protectedCol, setProtectedCol] = useState('');
+
+  useEffect(() => { fetchDatasets(); }, []);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -34,12 +32,12 @@ export default function BiasFairness() {
     setLoading(true);
     try {
       const featureCols = cols.filter(c => c !== target && c !== protectedCol);
-      const r = await axios.post(`${API}/bias-check/${activeDataset.id}/run`,
-        { target_col: target, protected_col: protectedCol, feature_cols: featureCols }, ax());
+      const r = await api.post(`/bias-check/${activeDataset.id}/run`,
+        { target_col: target, protected_col: protectedCol, feature_cols: featureCols });
       setResult(r.data);
       toast.success('Fairness analysis complete');
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Analysis failed');
+      toast.error(e.response?.data?.error || e.message || 'Analysis failed');
     } finally { setLoading(false); }
   };
 

@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { FileCheck, Plus, Trash2, Play, CheckCircle, XCircle, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 const RULE_TYPES = [
@@ -23,7 +20,7 @@ const SEVERITY_ICON = { error: XCircle, warning: AlertTriangle, info: CheckCircl
 const SEVERITY_COLOR = { error: '#ef4444', warning: '#f59e0b', info: '#6b7280' };
 
 export default function DataContracts() {
-  const { datasets, activeDataset, selectDataset } = useData();
+  const { datasets, activeDataset, selectDataset, fetchDatasets } = useData();
   const [contracts, setContracts] = useState([]);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -35,10 +32,16 @@ export default function DataContracts() {
   const [selectedContractId, setSelectedContractId] = useState(null);
 
   const fetchContracts = async () => {
-    try { const r = await axios.get(`${API}/contracts`, ax()); setContracts(r.data); } catch {}
+    try {
+      const r = await api.get('/contracts');
+      if (Array.isArray(r.data)) setContracts(r.data);
+    } catch {}
   };
 
-  useEffect(() => { fetchContracts(); }, []);
+  useEffect(() => {
+    fetchDatasets();
+    fetchContracts();
+  }, []);
 
   const addRule = () => setRules(r => [...r, { type: 'required_column', column: '', params: {} }]);
   const removeRule = i => setRules(r => r.filter((_, j) => j !== i));
@@ -49,7 +52,7 @@ export default function DataContracts() {
     if (!newName.trim()) return toast.error('Contract name required');
     if (!rules.length) return toast.error('Add at least one rule');
     try {
-      await axios.post(`${API}/contracts`, { name: newName, description: newDesc, dataset_id: activeDataset?.id, rules }, ax());
+      await api.post('/contracts', { name: newName, description: newDesc, dataset_id: activeDataset?.id, rules });
       toast.success('Contract created');
       setCreating(false); setNewName(''); setNewDesc(''); setRules([]);
       fetchContracts();
@@ -58,7 +61,7 @@ export default function DataContracts() {
 
   const deleteContract = async (id) => {
     try {
-      await axios.delete(`${API}/contracts/${id}`, ax());
+      await api.delete(`/contracts/${id}`);
       toast.success('Deleted'); fetchContracts();
       if (selectedContractId === id) { setSelectedContractId(null); setValidationResult(null); }
     } catch (e) { toast.error(e.response?.data?.error || 'Delete failed'); }
@@ -69,7 +72,7 @@ export default function DataContracts() {
     setValidating(contractId);
     setValidationResult(null);
     try {
-      const r = await axios.post(`${API}/contracts/${contractId}/validate`, { dataset_id: activeDataset.id }, ax());
+      const r = await api.post(`/contracts/${contractId}/validate`, { dataset_id: activeDataset.id });
       setValidationResult(r.data);
       setSelectedContractId(contractId);
       fetchContracts();

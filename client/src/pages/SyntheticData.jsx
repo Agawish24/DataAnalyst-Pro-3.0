@@ -1,11 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { Wand2, Plus, Trash2, Download, Save, RefreshCw } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 const COL_TYPES = ['numeric', 'integer', 'float', 'categorical', 'date', 'boolean', 'id'];
@@ -31,7 +27,9 @@ export default function SyntheticData() {
   const [activeTab, setActiveTab] = useState('template');
 
   useEffect(() => {
-    axios.get(`${API}/synthetic/templates`, ax()).then(r => setTemplates(r.data)).catch(() => {});
+    api.get('/synthetic/templates').then(r => {
+      if (Array.isArray(r.data)) setTemplates(r.data);
+    }).catch(() => {});
   }, []);
 
   const applyTemplate = async (tpl) => {
@@ -48,12 +46,12 @@ export default function SyntheticData() {
             ...c,
             params: { ...c.params, categories: typeof c.params?.categories === 'string' ? c.params.categories.split(',').map(s => s.trim()).filter(Boolean) : c.params?.categories }
           })), n_rows: nRows, seed };
-      const r = await axios.post(`${API}/synthetic/generate`, payload, ax());
+      const r = await api.post('/synthetic/generate', payload);
       setResult(r.data);
       if (!saveName) setSaveName(`Synthetic-${selectedTemplate || 'Custom'}-${nRows}`);
       toast.success(`Generated ${r.data.n_rows} rows`);
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Generation failed');
+      toast.error(e.response?.data?.error || e.message || 'Generation failed');
     } finally { setLoading(false); }
   };
 
@@ -64,10 +62,10 @@ export default function SyntheticData() {
     try {
       const schemaArr = result.schema?.map(s => ({ name: s.name, type: s.type === 'integer' ? 'integer' : s.type === 'float' ? 'float' : 'text' }))
         || Object.keys(result.rows[0] || {}).map(k => ({ name: k, type: 'text' }));
-      const r = await axios.post(`${API}/synthetic/save`, { name: saveName, rows: result.rows, schema: schemaArr, description: `Generated via Synthetic Data Generator (${result.n_rows} rows)` }, ax());
+      const r = await api.post('/synthetic/save', { name: saveName, rows: result.rows, schema: schemaArr, description: `Generated via Synthetic Data Generator (${result.n_rows} rows)` });
       toast.success(r.data.message);
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Save failed');
+      toast.error(e.response?.data?.error || e.message || 'Save failed');
     } finally { setSaving(false); }
   };
 

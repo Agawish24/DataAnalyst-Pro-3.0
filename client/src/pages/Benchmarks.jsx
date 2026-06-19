@@ -1,19 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Gauge, Play, Clock, Zap, TrendingUp, Database } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const token = () => localStorage.getItem('token');
-const ax = () => ({ headers: { Authorization: `Bearer ${token()}` } });
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, marginBottom: 16 };
 
 const COLORS = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
 
 export default function Benchmarks() {
-  const { datasets, activeDataset, selectDataset } = useData();
+  const { datasets, activeDataset, selectDataset, fetchDatasets } = useData();
   const [target, setTarget] = useState('');
   const [taskType, setTaskType] = useState('auto');
   const [loading, setLoading] = useState(false);
@@ -26,8 +22,9 @@ export default function Benchmarks() {
   const cols = schema.map(c => c.name);
 
   useEffect(() => {
-    axios.get(`${API}/benchmarks/system-stats`, ax()).then(r => setSystemStats(r.data)).catch(() => {});
-    axios.get(`${API}/benchmarks/history`, ax()).then(r => setHistory(r.data)).catch(() => {});
+    fetchDatasets();
+    api.get('/benchmarks/system-stats').then(r => setSystemStats(r.data)).catch(() => {});
+    api.get('/benchmarks/history').then(r => setHistory(r.data)).catch(() => {});
   }, []);
 
   const runBenchmark = async () => {
@@ -36,13 +33,13 @@ export default function Benchmarks() {
     setLoading(true);
     try {
       const featureCols = cols.filter(c => c !== target);
-      const r = await axios.post(`${API}/benchmarks/${activeDataset.id}/run`,
-        { target_col: target, feature_cols: featureCols, task_type: taskType }, ax());
+      const r = await api.post(`/benchmarks/${activeDataset.id}/run`,
+        { target_col: target, feature_cols: featureCols, task_type: taskType });
       setResult(r.data);
       setHistory(h => [r.data, ...h].slice(0, 20));
       toast.success(`Benchmark complete — best: ${r.data.best_model}`);
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Benchmark failed');
+      toast.error(e.response?.data?.error || e.message || 'Benchmark failed');
     } finally { setLoading(false); }
   };
 
