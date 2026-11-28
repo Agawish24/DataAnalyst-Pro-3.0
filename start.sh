@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Load environment variables from .env if present
+if [ -f "$(dirname "$0")/.env" ]; then
+  export $(grep -v '^#' "$(dirname "$0")/.env" | xargs)
+fi
+
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "[start.sh] Root dir: $ROOT_DIR"
 
